@@ -1,6 +1,7 @@
 use biblatex::{Bibliography, Entry};
 use relm4::factory::FactoryVecDeque;
 use relm4::Controller;
+// FIX: Ensure SingleSelection is imported
 use relm4_components::open_dialog::{OpenDialog, OpenDialogResponse, SingleSelection};
 use relm4_components::save_dialog::{SaveDialog, SaveDialogResponse};
 
@@ -18,7 +19,7 @@ pub struct AppModel {
     // UI State
     pub doi_input: String,
     pub search_input: String,
-    pub manual_bib_input: String, // <--- NEW FIELD
+    pub manual_bib_input: String,
 
     pub is_loading: bool,
     pub status_msg: String,
@@ -40,14 +41,14 @@ pub enum AppMsg {
     // UI Inputs
     UpdateDoi(String),
     UpdateSearch(String),
-    UpdateManualBib(String), // <--- NEW MSG
+    UpdateManualBib(String),
 
     // Triggers
     TriggerOpen,
     TriggerSave,
     TriggerSaveAs,
     ShowPreferences,
-    ParseManualBib, // <--- NEW MSG
+    ParseManualBib,
 
     // Async Triggers
     FetchDoi,
@@ -61,10 +62,12 @@ pub enum AppMsg {
     DeleteEntry(String),
     ClearAll,
     RegenerateAllKeys,
+    ScanDuplicates,
     UpdateKeyConfig(KeyGenConfig),
     AddBiblatexEntry(Entry),
 
-    // Component Responses
+    // Dialog Responses
+    // FIX: Added <SingleSelection> generic argument here
     OpenResponse(OpenDialogResponse<SingleSelection>),
     SaveResponse(SaveDialogResponse),
 }

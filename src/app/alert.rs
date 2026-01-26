@@ -1,15 +1,20 @@
+// src/ui/alert.rs
 use gtk4::glib;
 use gtk4::prelude::*;
-use relm4::prelude::*; // <--- Import glib
+use relm4::prelude::*;
 
 pub struct AlertModel {
     pub hidden: bool,
     pub message: String,
+    // --- NEW FIELDS ---
+    pub header: String,
+    pub is_error: bool,
 }
 
 #[derive(Debug)]
 pub enum AlertMsg {
-    Show(String),
+    Show(String),     // Defaults to Error (Red)
+    ShowInfo(String), // New: Info (Blue/Standard)
     Close,
 }
 
@@ -22,11 +27,12 @@ impl SimpleComponent for AlertModel {
     view! {
         dialog = gtk::Window {
             set_modal: true,
-            set_title: Some("Error"),
+            // Dynamic Title
+            #[watch]
+            set_title: Some(if model.is_error { "Error" } else { "Information" }),
             set_default_width: 350,
             set_resizable: false,
 
-            // Fix: Return Propagation::Stop to prevent the window from being destroyed
             connect_close_request[sender] => move |_| {
                 sender.input(AlertMsg::Close);
                 glib::Propagation::Stop
@@ -40,19 +46,25 @@ impl SimpleComponent for AlertModel {
                 set_margin_all: 24,
                 set_spacing: 16,
 
-                // Header
+                // Header Area
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 12,
 
                     gtk::Image {
-                        set_icon_name: Some("dialog-error-symbolic"),
+                        // Dynamic Icon
+                        #[watch]
+                        set_icon_name: Some(if model.is_error { "dialog-error-symbolic" } else { "dialog-information-symbolic" }),
                         set_pixel_size: 32,
-                        add_css_class: "error",
+                        // Dynamic Class (error = red, success/info = standard)
+                        #[watch]
+                        set_css_classes: if model.is_error { &["error"] } else { &["success"] },
                     },
 
                     gtk::Label {
-                        set_label: "An error occurred",
+                        // Dynamic Header Text
+                        #[watch]
+                        set_label: &model.header,
                         add_css_class: "title-3",
                     },
                 },
@@ -66,7 +78,7 @@ impl SimpleComponent for AlertModel {
                     set_halign: gtk::Align::Start,
                 },
 
-                // Footer / Button
+                // Footer
                 gtk::Box {
                     set_halign: gtk::Align::End,
                     gtk::Button {
@@ -89,6 +101,8 @@ impl SimpleComponent for AlertModel {
         let model = AlertModel {
             hidden: true,
             message: String::new(),
+            header: String::new(),
+            is_error: true,
         };
 
         let widgets = view_output!();
@@ -100,6 +114,15 @@ impl SimpleComponent for AlertModel {
         match msg {
             AlertMsg::Show(text) => {
                 self.message = text;
+                self.header = "An error occurred".to_string();
+                self.is_error = true;
+                self.hidden = false;
+            }
+            // New Handler for Success/Info
+            AlertMsg::ShowInfo(text) => {
+                self.message = text;
+                self.header = "Information".to_string();
+                self.is_error = false;
                 self.hidden = false;
             }
             AlertMsg::Close => {

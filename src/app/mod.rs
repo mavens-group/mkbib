@@ -214,6 +214,7 @@ impl Component for AppModel {
         let edit_menu = gio::Menu::new();
         edit_menu.append(Some("Preferences"), Some("edit.preferences"));
         edit_menu.append(Some("Regenerate Keys"), Some("edit.regenerate_keys"));
+        edit_menu.append(Some("Scan for Duplicates"), Some("edit.scan_duplicates"));
         menu_model.append_submenu(Some("Edit"), &edit_menu);
 
         let help_menu = gio::Menu::new();

@@ -2,7 +2,7 @@ use biblatex::Bibliography;
 use relm4::prelude::*;
 use relm4_components::open_dialog::{OpenDialogMsg, OpenDialogResponse};
 use relm4_components::save_dialog::{SaveDialogMsg, SaveDialogResponse};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::alert::AlertMsg;
 use super::model::{AppModel, AppMsg};
@@ -11,22 +11,78 @@ use crate::core;
 use crate::ui;
 use crate::ui::preferences::PreferencesMsg;
 
+// --- HELPERS ---
+
+fn normalize(s: &str) -> String {
+  s.chars()
+    .filter(|c| c.is_alphanumeric())
+    .map(|c| c.to_ascii_lowercase())
+    .collect()
+}
+
+fn to_ui_entry(entry: &biblatex::Entry) -> ui::row::BibEntry {
+  let title = entry
+    .fields
+    .get("title")
+    .map(|t| core::bib_to_string(t))
+    .unwrap_or_else(|| "Untitled".to_string());
+
+  ui::row::BibEntry {
+    key: entry.key.clone(),
+    title,
+    kind: format!("{}", entry.entry_type),
+    is_error: false,
+  }
+}
+
+// NEW: Collision Resolver
+fn ensure_unique(base_key: &str, bib: &Bibliography) -> String {
+  // 1. If exact key doesn't exist, return it
+  if bib.get(base_key).is_none() {
+    return base_key.to_string();
+  }
+
+  // 2. Try appending 'a' through 'z'
+  let mut suffix_char = 'a';
+  loop {
+    let candidate = format!("{}{}", base_key, suffix_char);
+    if bib.get(&candidate).is_none() {
+      return candidate;
+    }
+
+    if suffix_char == 'z' {
+      break;
+    }
+    suffix_char = (suffix_char as u8 + 1) as char;
+  }
+
+  // 3. Fallback: Append numeric suffix _1, _2...
+  let mut i = 1;
+  loop {
+    let candidate = format!("{}_{}", base_key, i);
+    if bib.get(&candidate).is_none() {
+      return candidate;
+    }
+    i += 1;
+  }
+}
+
+// --- UPDATE HANDLER ---
+
 pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<AppModel>) {
   match msg {
     // --- Inputs ---
     AppMsg::UpdateDoi(v) => model.doi_input = v,
     AppMsg::UpdateSearch(v) => model.search_input = v,
-    // Update the manual input string
     AppMsg::UpdateManualBib(v) => model.manual_bib_input = v,
 
-    // --- NEW: Parse Manual Entry ---
+    // --- Manual Parse ---
     AppMsg::ParseManualBib => {
       let text = model.manual_bib_input.trim().to_string();
       if text.is_empty() {
         return;
       }
 
-      // Try to parse the pasted text
       match Bibliography::parse(&text) {
         Ok(bib) => {
           let mut count = 0;
@@ -34,36 +90,103 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
             sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
             count += 1;
           }
-          // Clear the input box on success
           model.manual_bib_input = String::new();
           model.status_msg = format!("Added {} manual entries.", count);
         }
         Err(e) => {
-          // Show error alert if parsing fails
-          model.status_msg = "Error parsing manual entry.".into();
+          model.status_msg = "Failed to parse manual entry.".to_string();
           model
             .alert
-            .emit(AlertMsg::Show(format!("Invalid BibTeX format:\n{}", e)));
+            .emit(AlertMsg::Show(format!("BibTeX Parse Error:\n{}", e)));
         }
       }
     }
 
-    // --- Network Fetching ---
+    // --- Dialog Triggers ---
+    AppMsg::TriggerOpen => model.open_dialog.emit(OpenDialogMsg::Open),
+    AppMsg::TriggerSave => model
+      .save_dialog
+      .emit(SaveDialogMsg::SaveAs("library.bib".into())),
+    AppMsg::TriggerSaveAs => model
+      .save_dialog
+      .emit(SaveDialogMsg::SaveAs("library.bib".into())),
+    AppMsg::ShowPreferences => model.preferences.emit(PreferencesMsg::Show),
+
+    // --- Duplicate Scanner ---
+    AppMsg::ScanDuplicates => {
+      let mut fingerprints: HashMap<String, Vec<String>> = HashMap::new();
+
+      for entry in model.bibliography.iter() {
+        let title = entry
+          .fields
+          .get("title")
+          .map(|t| core::bib_to_string(t))
+          .unwrap_or_default();
+        let year = entry
+          .fields
+          .get("year")
+          .map(|t| core::bib_to_string(t))
+          .unwrap_or_default();
+        let author = entry
+          .fields
+          .get("author")
+          .map(|t| core::bib_to_string(t))
+          .unwrap_or_default();
+
+        let fp = format!(
+          "{}|{}|{}",
+          normalize(&title),
+          normalize(&year),
+          normalize(&author)
+        );
+        fingerprints.entry(fp).or_default().push(entry.key.clone());
+      }
+
+      let mut report = String::new();
+      let mut duplicate_count = 0;
+
+      for (_fp, keys) in fingerprints {
+        if keys.len() > 1 {
+          duplicate_count += 1;
+          report.push_str(&format!("• Group {}:\n", duplicate_count));
+          for key in keys {
+            report.push_str(&format!("   - {}\n", key));
+          }
+          report.push('\n');
+        }
+      }
+
+      if duplicate_count == 0 {
+        model.status_msg = "Library clean.".to_string();
+        model.alert.emit(AlertMsg::ShowInfo(
+          "Great news!\n\nNo duplicate entries found.".into(),
+        ));
+      } else {
+        model.status_msg = format!("Found {} duplicate groups.", duplicate_count);
+        model.alert.emit(AlertMsg::ShowInfo(format!(
+          "Found duplicates:\n\n{}",
+          report
+        )));
+      }
+    }
+
+    // --- Fetch Logic ---
     AppMsg::FetchDoi => {
       let doi = model.doi_input.trim().to_string();
       if doi.is_empty() {
         return;
       }
-
       model.is_loading = true;
-      model.status_msg = format!("Resolving DOI: {}...", doi);
+      model.status_msg = format!("Fetching DOI: {}...", doi);
 
-      let sender = sender.clone();
-      tokio::spawn(async move {
-        match api::fetch_doi(&doi).await {
-          Ok(bib) => sender.input(AppMsg::FetchSuccess(bib)),
-          Err(e) => sender.input(AppMsg::FetchError(e.to_string())),
-        }
+      let input = sender.input_sender().clone();
+
+      sender.command(move |_out, _shutdown| async move {
+        let result = match api::fetch_doi(&doi).await {
+          Ok(bib) => AppMsg::FetchSuccess(bib),
+          Err(e) => AppMsg::FetchError(e.to_string()),
+        };
+        input.send(result).expect("Failed to send async result");
       });
     }
 
@@ -72,195 +195,141 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       if query.is_empty() {
         return;
       }
-
-      // 1. Smart Paste (Raw BibTeX) - kept for search bar compatibility
-      if query.contains("@") {
-        match Bibliography::parse(&query) {
-          Ok(bib) => {
-            sender.input(AppMsg::FetchSuccess(bib));
-            return;
-          }
-          Err(_) => {}
-        }
-      }
-
       model.is_loading = true;
       model.status_msg = format!("Searching Crossref: {}...", query);
 
-      let sender = sender.clone();
-      tokio::spawn(async move {
-        match api::search_crossref(&query).await {
-          Ok(bib) => sender.input(AppMsg::FetchSuccess(bib)),
-          Err(e) => sender.input(AppMsg::FetchError(e.to_string())),
-        }
+      let input = sender.input_sender().clone();
+
+      sender.command(move |_out, _shutdown| async move {
+        let result = match api::search_crossref(&query).await {
+          Ok(bib) => AppMsg::FetchSuccess(bib),
+          Err(e) => AppMsg::FetchError(e.to_string()),
+        };
+        input.send(result).expect("Failed to send async result");
       });
     }
 
-    // --- Async Results ---
-    AppMsg::FetchSuccess(new_bib) => {
+    AppMsg::FetchSuccess(bib) => {
       model.is_loading = false;
-      model.status_msg = format!("Imported {} entries.", new_bib.len());
-      for entry in new_bib {
-        sender.input(AppMsg::AddBiblatexEntry(entry));
+      let count = bib.iter().count();
+      model.status_msg = format!("Fetched {} entries.", count);
+      for entry in bib.iter() {
+        sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
       }
-      model.doi_input.clear();
-      model.search_input.clear();
     }
 
     AppMsg::FetchError(err) => {
       model.is_loading = false;
-      model.status_msg = format!("Error: {}", err);
-      model.alert.emit(AlertMsg::Show(err));
+      model.status_msg = "Fetch failed.".to_string();
+      model
+        .alert
+        .emit(AlertMsg::Show(format!("Network Error:\n{}", err)));
     }
 
-    // --- Data Logic ---
+    // --- Core Logic ---
     AppMsg::AddBiblatexEntry(mut entry) => {
-      entry.key = core::keygen::generate_key(&entry, &model.key_config);
+      // 1. Generate Base Key
+      let base_key = core::keygen::generate_key(&entry, &model.key_config);
+
+      // 2. Ensure Uniqueness (Suffixes)
+      // Checks against the current database to prevent overwrites
+      let unique_key = ensure_unique(&base_key, &model.bibliography);
+      entry.key = unique_key;
+
+      // 3. Add to backend
       model.bibliography.insert(entry.clone());
 
-      model.entries.guard().push_front(ui::row::BibEntry {
-        key: entry.key.clone(),
-        title: entry
-          .fields
-          .get("title")
-          .map(|t| core::bib_to_string(t))
-          .unwrap_or_else(|| "Untitled".to_string()),
-        kind: entry.entry_type.to_string(),
-        is_error: false,
-      });
+      // 4. Add to UI
+      let ui_entry = to_ui_entry(&entry);
+      model.entries.guard().push_back(ui_entry);
     }
 
     AppMsg::DeleteEntry(key) => {
       model.bibliography.remove(&key);
-      let mut guard = model.entries.guard();
-      let index_opt = guard.iter().position(|e| e.key == key);
-      if let Some(index) = index_opt {
-        guard.remove(index);
+      model.entries.guard().clear();
+      for entry in model.bibliography.iter() {
+        model.entries.guard().push_back(to_ui_entry(entry));
       }
-      model.status_msg = format!("Deleted entry {}", key);
     }
 
     AppMsg::ClearAll => {
       model.bibliography = Bibliography::new();
       model.entries.guard().clear();
-      model.status_msg = "Cleared library.".to_string();
-    }
-
-    // --- Config & Regen ---
-    AppMsg::UpdateKeyConfig(cfg) => {
-      model.key_config = cfg.clone();
-      core::config::save(&cfg);
-      sender.input(AppMsg::RegenerateAllKeys);
+      model.status_msg = "Library cleared.".to_string();
     }
 
     AppMsg::RegenerateAllKeys => {
-      let old_bib = model.bibliography.clone();
+      let all_entries: Vec<biblatex::Entry> = model.bibliography.iter().cloned().collect();
       model.bibliography = Bibliography::new();
       model.entries.guard().clear();
-      for entry in old_bib.iter() {
-        sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
+
+      let mut count = 0;
+      for entry in all_entries {
+        // This re-uses AddBiblatexEntry, so suffixes are applied automatically!
+        sender.input(AppMsg::AddBiblatexEntry(entry));
+        count += 1;
       }
-      model.status_msg = "Regenerated all keys.".to_string();
+      model.status_msg = format!("Regenerated keys for {} entries.", count);
     }
 
-    // --- Triggers / Menus ---
-    AppMsg::TriggerOpen => model.open_dialog.emit(OpenDialogMsg::Open),
-    AppMsg::TriggerSave => model
-      .save_dialog
-      .emit(SaveDialogMsg::SaveAs("bibliography.bib".into())),
-    AppMsg::TriggerSaveAs => model
-      .save_dialog
-      .emit(SaveDialogMsg::SaveAs("bibliography.bib".into())),
-    AppMsg::ShowPreferences => model.preferences.emit(PreferencesMsg::Show),
+    AppMsg::UpdateKeyConfig(cfg) => {
+      model.key_config = cfg;
+      core::config::save(&model.key_config);
+      model.status_msg = "Configuration saved.".to_string();
+    }
 
-    // --- File Responses ---
-    AppMsg::OpenResponse(OpenDialogResponse::Accept(path)) => {
-      let content = std::fs::read_to_string(&path).unwrap_or_default();
+    // --- Dialog Responses ---
+    AppMsg::OpenResponse(resp) => {
+      if let OpenDialogResponse::Accept(path) = resp {
+        match std::fs::read_to_string(&path) {
+          Ok(content) => {
+            let mut success_count = 0;
+            let mut errors = Vec::new();
 
-      // 1. FAST PATH
-      if let Ok(bib) = Bibliography::parse(&content) {
-        for entry in bib.iter() {
-          sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
-        }
-        model.status_msg = format!("Loaded {} entries.", bib.len());
-        return;
-      }
+            match Bibliography::parse(&content) {
+              Ok(bib) => {
+                let mut batch_keys = HashSet::new();
+                for entry in bib.iter() {
+                  // Basic de-duplication within the batch itself
+                  let key = entry.key.clone();
+                  if batch_keys.contains(&key) {
+                    continue;
+                  }
+                  batch_keys.insert(key);
 
-      // 2. SLOW PATH (Error Collection)
-      let mut success_count = 0;
-      let mut errors = Vec::new();
-      let mut batch_keys = HashSet::new();
-
-      let chunks: Vec<&str> = content.split("\n@").collect();
-
-      for (i, chunk) in chunks.iter().enumerate() {
-        let text = if i == 0 {
-          format!("{}", chunk)
-        } else {
-          format!("@{}", chunk)
-        };
-        if text.trim().is_empty() {
-          continue;
-        }
-
-        match Bibliography::parse(&text) {
-          Ok(bib) => {
-            for entry in bib.iter() {
-              let key = entry.key.clone();
-              if batch_keys.contains(&key) {
-                errors.push(format!("Duplicate key in file: '{}'", key));
-                continue;
+                  sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
+                  success_count += 1;
+                }
               }
-              if model.bibliography.get(&key).is_some() {
-                errors.push(format!("Key already exists in library: '{}'", key));
-                continue;
-              }
-              batch_keys.insert(key);
-              sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
-              success_count += 1;
+              Err(e) => errors.push(format!("Full Parse Error: {}", e)),
+            }
+
+            if errors.is_empty() {
+              model.status_msg = format!("Loaded {} entries.", success_count);
+            } else {
+              model
+                .alert
+                .emit(AlertMsg::Show(format!("Errors:\n{:?}", errors)));
             }
           }
-          Err(e) => {
-            let key_hint = text
-              .lines()
-              .next()
-              .unwrap_or("?")
-              .replace("@", "")
-              .replace("{", "");
-            let key_name = key_hint.split(',').next().unwrap_or("?").trim();
-            errors.push(format!("Parse error at '{}': {}", key_name, e));
-          }
+          Err(e) => model
+            .alert
+            .emit(AlertMsg::Show(format!("File Error:\n{}", e))),
         }
       }
-
-      if errors.is_empty() {
-        model.status_msg = format!("Loaded {} entries.", success_count);
-      } else {
-        model.status_msg = format!(
-          "Loaded {} valid. Found {} errors.",
-          success_count,
-          errors.len()
-        );
-        let report = format!(
-          "Loaded {} valid entries.\n\nErrors:\n- {}",
-          success_count,
-          errors.join("\n- ")
-        );
-        model.alert.emit(AlertMsg::Show(report));
-      }
     }
 
-    AppMsg::SaveResponse(SaveDialogResponse::Accept(path)) => {
-      let output = model.bibliography.to_bibtex_string();
-      if std::fs::write(&path, output).is_ok() {
-        model.status_msg = "Library saved.".to_string();
-      } else {
-        let err_msg = "Failed to write file to disk.".to_string();
-        model.status_msg = err_msg.clone();
-        model.alert.emit(AlertMsg::Show(err_msg));
+    AppMsg::SaveResponse(resp) => {
+      if let SaveDialogResponse::Accept(path) = resp {
+        let output = model.bibliography.to_bibtex_string();
+        if std::fs::write(&path, output).is_ok() {
+          model.status_msg = "Library saved.".to_string();
+        } else {
+          model
+            .alert
+            .emit(AlertMsg::Show("Failed to write file.".into()));
+        }
       }
     }
-
-    _ => {}
   }
 }
