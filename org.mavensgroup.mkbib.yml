@@ -1,0 +1,24 @@
+app-id: org.mavensgroup.mkbib
+runtime: org.gnome.Platform
+runtime-version: '45'
+sdk: org.gnome.Sdk
+command: mkbib
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --share=network
+modules:
+  - name: mkbib
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -D target/release/mkbib /app/bin/mkbib
+      - install -D assets/org.mavensgroup.mkbib.desktop /app/share/applications/org.mavensgroup.mkbib.desktop
+      - install -D assets/org.mavensgroup.mkbib.svg /app/share/icons/hicolor/scalable/apps/org.mavensgroup.mkbib.svg
+    sources:
+      - type: dir
+        path: .
+    # Note: For a real Flathub release, you need to vendor dependencies.
+    # For local testing: flatpak-builder --user --install build-dir org.mavensgroup.mkbib.yml

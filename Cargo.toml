@@ -2,27 +2,21 @@
 name = "mkbib"
 version = "0.2.0"
 edition = "2021"
-license = "MIT"  # Or "GPL-3.0", "Apache-2.0", etc.
+license = "MIT"
 description = "A modern BibTeX editor for GTK4"
 
 [dependencies]
-# GUI
 gtk4 = { version = "0.7", features = ["v4_10"] }
 relm4 = { version = "0.7", features = ["libadwaita", "macros"] }
 relm4-components = "0.7"
-
-# Network & Async
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.11", features = ["json", "blocking"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 directories = "5.0"
-
-# BibTeX Handling (Better for editing than Hayagriva)
 biblatex = "0.8"
 anyhow = "1.0"
-
 
 [profile.release]
 opt-level = 3
@@ -30,23 +24,20 @@ lto = true
 codegen-units = 1
 strip = true
 
-[package.metadata.packager]
-product_name = "MkBib"
-identifier = "org.mavensgroup.mkbib"
-version = "0.2.0"
-before_packaging_command = "cargo build --release"
-resources = ["assets"]  # This copies the whole assets folder into the package
+# --- LINUX PACKAGING ---
 
-# CHANGE THIS LINE:
-icons = ["assets/org.mavensgroup.mkbib.png"]
-
-[package.metadata.packager.deb]
+# 1. DEB (Debian/Ubuntu)
+[package.metadata.deb]
 section = "utils"
-depends = ["libgtk-4-1", "libadwaita-1-0"]
+depends = "$auto, libgtk-4-1, libadwaita-1-0"
+maintainer = "The Mavens Group"
+assets = [
+    ["target/release/mkbib", "/usr/bin/mkbib", "755"],
+    ["assets/org.mavensgroup.mkbib.desktop", "/usr/share/applications/org.mavensgroup.mkbib.desktop", "644"],
+    ["assets/org.mavensgroup.mkbib.svg", "/usr/share/icons/hicolor/scalable/apps/org.mavensgroup.mkbib.svg", "644"]
+]
 
-[package.metadata.packager.rpm]
-requires = ["gtk4", "libadwaita"]
-
+# 2. RPM (Fedora/RedHat)
 [package.metadata.generate-rpm]
 assets = [
     { source = "target/release/mkbib", dest = "/usr/bin/mkbib", mode = "755" },
