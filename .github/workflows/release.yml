@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Dependencies
-        run: sudo apt-get install -y libgtk-4-dev libadwaita-1-dev rpm
+        run: sudo apt-get install -y --fix-missing libgtk-4-dev libadwaita-1-dev rpm build-essential
       - name: Install Tools
         run: |
           cargo install cargo-generate-rpm
