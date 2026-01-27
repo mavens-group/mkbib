@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MkBib
+Exec=mkbib
+Icon=org.mkbib.rs
+Terminal=false
+Categories=Office;
+StartupWMClass=org.mkbib.rs

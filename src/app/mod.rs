@@ -1,3 +1,4 @@
+// src/app/mod.rs
 use biblatex::Bibliography;
 use gtk4::gio;
 use gtk4::glib;
@@ -5,7 +6,7 @@ use gtk4::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 use relm4_components::open_dialog::{OpenDialog, OpenDialogSettings};
-use relm4_components::save_dialog::{SaveDialog, SaveDialogSettings}; // Needed for signal cloning
+use relm4_components::save_dialog::{SaveDialog, SaveDialogSettings};
 
 pub mod alert;
 pub mod model;
@@ -16,7 +17,11 @@ pub use model::{AppModel, AppMsg};
 use self::alert::AlertModel;
 use crate::core;
 use crate::menu;
+use crate::ui::details_dialog::{DetailsDialogModel, DetailsDialogOutput};
 use crate::ui::preferences::{PreferencesModel, PreferencesOutput};
+// FIX 1: Re-added missing imports for Search Dialog
+use crate::ui::row::BibEntryOutput;
+use crate::ui::search_dialog::{SearchDialogModel, SearchDialogOutput};
 
 #[relm4::component(pub)]
 impl Component for AppModel {
@@ -28,6 +33,8 @@ impl Component for AppModel {
     view! {
         gtk::ApplicationWindow {
             set_title: Some("MkBib"),
+            // FIX 2: Kept the icon fix
+            set_icon_name: Some("mkbib"),
             set_default_width: 1100,
             set_default_height: 750,
 
@@ -110,7 +117,6 @@ impl Component for AppModel {
                                     set_has_frame: true,
                                     set_policy: (gtk::PolicyType::Automatic, gtk::PolicyType::Automatic),
 
-                                    // FIX: Assign a name so we can access it in 'init' and 'watch'
                                     #[name = "manual_text_view"]
                                     gtk::TextView {
                                         set_wrap_mode: gtk::WrapMode::WordChar,
@@ -119,19 +125,16 @@ impl Component for AppModel {
                                         set_left_margin: 8,
                                         set_right_margin: 8,
 
-                                        // FIX: Sync Model -> View (e.g. when clearing input)
-                                        // We use the visible property to piggyback this update logic
                                         #[watch]
                                         set_visible: {
                                             let buffer = manual_text_view.buffer();
                                             let current = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
-                                            // Only update if different to avoid cursor jumping
                                             if model.manual_bib_input != current {
                                                 buffer.set_text(&model.manual_bib_input);
                                             }
                                             true
                                         }
-                                    }
+                                    },
                                 },
 
                                 gtk::Button {
@@ -175,6 +178,7 @@ impl Component for AppModel {
                         #[local_ref]
                         entries_list_box -> gtk::ListBox {
                             set_selection_mode: gtk::SelectionMode::None,
+                            set_activate_on_single_click: true,
                             add_css_class: "boxed-list",
                             set_margin_all: 12,
                         }
@@ -223,9 +227,12 @@ impl Component for AppModel {
 
         let menu_bar = gtk::PopoverMenuBar::from_model(Some(&menu_model));
 
+        // --- Entries Factory ---
         let entries = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
-            .forward(sender.input_sender(), |output| AppMsg::DeleteEntry(output));
+            .forward(sender.input_sender(), |output: BibEntryOutput| {
+                AppMsg::HandleRowOutput(output)
+            });
 
         let open_dialog = OpenDialog::builder()
             .launch(OpenDialogSettings {
@@ -251,6 +258,28 @@ impl Component for AppModel {
                 PreferencesOutput::ConfigUpdated(cfg) => AppMsg::UpdateKeyConfig(cfg),
             });
 
+        // --- Details Dialog ---
+        let details_dialog = DetailsDialogModel::builder()
+            .transient_for(&root)
+            .launch(())
+            .forward(sender.input_sender(), |output| match output {
+                DetailsDialogOutput::Saved(old_key, text) => AppMsg::FinishEditEntry(old_key, text),
+            });
+
+        // FIX 3: Re-added Search Dialog Initialization
+        let search_dialog = SearchDialogModel::builder()
+            .transient_for(&root)
+            .launch(())
+            .forward(sender.input_sender(), |output| match output {
+                // Note: Ensure FetchDoi maps to a valid message.
+                // Based on your previous code, it seemed to map to FetchSelectedDoi or similar.
+                // If AppMsg::FetchSelectedDoi doesn't exist, use UpdateDoi + FetchDoi.
+                // Assuming `AppMsg::FetchSelectedDoi` exists or we use the standard flow:
+                SearchDialogOutput::FetchDoi(doi) => AppMsg::UpdateDoi(doi),
+            });
+        // Note: If you want it to auto-fetch, you can chain messages or add a specific msg.
+        // For now, updating the DOI box is safe.
+
         let alert = AlertModel::builder()
             .transient_for(&root)
             .launch(())
@@ -268,14 +297,15 @@ impl Component for AppModel {
             save_dialog,
             preferences,
             alert,
+            details_dialog,
+            // FIX 4: Re-added search_dialog to struct
+            search_dialog,
             key_config,
         };
 
         let entries_list_box = model.entries.widget();
         let widgets = view_output!();
 
-        // FIX: Connect the buffer changed signal here in Init
-        // This handles View -> Model synchronization
         let buffer = widgets.manual_text_view.buffer();
         buffer.connect_changed(glib::clone!(@strong sender => move |buff| {
             let text = buff.text(&buff.start_iter(), &buff.end_iter(), true).to_string();

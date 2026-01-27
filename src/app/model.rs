@@ -1,14 +1,16 @@
 use biblatex::{Bibliography, Entry};
 use relm4::factory::FactoryVecDeque;
 use relm4::Controller;
-// FIX: Ensure SingleSelection is imported
 use relm4_components::open_dialog::{OpenDialog, OpenDialogResponse, SingleSelection};
 use relm4_components::save_dialog::{SaveDialog, SaveDialogResponse};
 
 use super::alert::AlertModel;
 use crate::core::keygen::KeyGenConfig;
 use crate::ui;
+use crate::ui::details_dialog::DetailsDialogModel;
 use crate::ui::preferences::PreferencesModel;
+use crate::ui::row::BibEntryOutput;
+use crate::ui::search_dialog::SearchDialogModel; // <--- NEW
 
 // --- State ---
 
@@ -29,6 +31,8 @@ pub struct AppModel {
     pub save_dialog: Controller<SaveDialog>,
     pub alert: Controller<AlertModel>,
     pub preferences: Controller<PreferencesModel>,
+    pub details_dialog: Controller<DetailsDialogModel>,
+    pub search_dialog: Controller<SearchDialogModel>, // <--- NEW
 
     // Config
     pub key_config: KeyGenConfig,
@@ -52,14 +56,20 @@ pub enum AppMsg {
 
     // Async Triggers
     FetchDoi,
-    FetchSearch,
+    FetchSearch, // Now triggers the "Suggestion Search"
 
     // Async Results
     FetchSuccess(Bibliography),
     FetchError(String),
 
+    // Search Dialog Logic
+    SearchResultsLoaded(Vec<crate::api::SearchResultItem>), // <--- NEW
+    FetchSelectedDoi(String),                               // <--- NEW
+
     // Core Logic
-    DeleteEntry(String),
+    HandleRowOutput(BibEntryOutput),
+    FinishEditEntry(String, String),
+
     ClearAll,
     RegenerateAllKeys,
     ScanDuplicates,
@@ -67,7 +77,6 @@ pub enum AppMsg {
     AddBiblatexEntry(Entry),
 
     // Dialog Responses
-    // FIX: Added <SingleSelection> generic argument here
     OpenResponse(OpenDialogResponse<SingleSelection>),
     SaveResponse(SaveDialogResponse),
 }

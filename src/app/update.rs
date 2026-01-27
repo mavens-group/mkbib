@@ -9,7 +9,10 @@ use super::model::{AppModel, AppMsg};
 use crate::api;
 use crate::core;
 use crate::ui;
+use crate::ui::details_dialog::DetailsDialogMsg;
 use crate::ui::preferences::PreferencesMsg;
+use crate::ui::row::BibEntryOutput;
+use crate::ui::search_dialog::SearchDialogMsg; // <--- NEW
 
 // --- HELPERS ---
 
@@ -35,28 +38,21 @@ fn to_ui_entry(entry: &biblatex::Entry) -> ui::row::BibEntry {
   }
 }
 
-// NEW: Collision Resolver
 fn ensure_unique(base_key: &str, bib: &Bibliography) -> String {
-  // 1. If exact key doesn't exist, return it
   if bib.get(base_key).is_none() {
     return base_key.to_string();
   }
-
-  // 2. Try appending 'a' through 'z'
   let mut suffix_char = 'a';
   loop {
     let candidate = format!("{}{}", base_key, suffix_char);
     if bib.get(&candidate).is_none() {
       return candidate;
     }
-
     if suffix_char == 'z' {
       break;
     }
     suffix_char = (suffix_char as u8 + 1) as char;
   }
-
-  // 3. Fallback: Append numeric suffix _1, _2...
   let mut i = 1;
   loop {
     let candidate = format!("{}_{}", base_key, i);
@@ -82,7 +78,6 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       if text.is_empty() {
         return;
       }
-
       match Bibliography::parse(&text) {
         Ok(bib) => {
           let mut count = 0;
@@ -115,7 +110,6 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
     // --- Duplicate Scanner ---
     AppMsg::ScanDuplicates => {
       let mut fingerprints: HashMap<String, Vec<String>> = HashMap::new();
-
       for entry in model.bibliography.iter() {
         let title = entry
           .fields
@@ -144,7 +138,6 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
 
       let mut report = String::new();
       let mut duplicate_count = 0;
-
       for (_fp, keys) in fingerprints {
         if keys.len() > 1 {
           duplicate_count += 1;
@@ -170,7 +163,7 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       }
     }
 
-    // --- Fetch Logic ---
+    // --- Fetch Logic (Single DOI) ---
     AppMsg::FetchDoi => {
       let doi = model.doi_input.trim().to_string();
       if doi.is_empty() {
@@ -180,7 +173,6 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       model.status_msg = format!("Fetching DOI: {}...", doi);
 
       let input = sender.input_sender().clone();
-
       sender.command(move |_out, _shutdown| async move {
         let result = match api::fetch_doi(&doi).await {
           Ok(bib) => AppMsg::FetchSuccess(bib),
@@ -190,18 +182,51 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       });
     }
 
+    // --- Search Logic (Suggestions) ---
     AppMsg::FetchSearch => {
       let query = model.search_input.trim().to_string();
       if query.is_empty() {
         return;
       }
+
       model.is_loading = true;
-      model.status_msg = format!("Searching Crossref: {}...", query);
+      model.status_msg = format!("Searching Crossref for: {}...", query);
 
       let input = sender.input_sender().clone();
 
+      // Spawn command to get suggestions list
       sender.command(move |_out, _shutdown| async move {
-        let result = match api::search_crossref(&query).await {
+        match api::search_crossref_suggestions(&query).await {
+          Ok(items) => input.send(AppMsg::SearchResultsLoaded(items)).unwrap(),
+          Err(e) => input.send(AppMsg::FetchError(e.to_string())).unwrap(),
+        }
+      });
+    }
+
+    // New: Results arrived, show dialog
+    AppMsg::SearchResultsLoaded(items) => {
+      model.is_loading = false;
+      if items.is_empty() {
+        model.status_msg = "No results found.".to_string();
+        model
+          .alert
+          .emit(AlertMsg::ShowInfo("No results found on Crossref.".into()));
+      } else {
+        model.status_msg = format!("Found {} results.", items.len());
+        model
+          .search_dialog
+          .emit(SearchDialogMsg::ShowResults(items));
+      }
+    }
+
+    // New: User selected a result from dialog
+    AppMsg::FetchSelectedDoi(doi) => {
+      model.is_loading = true;
+      model.status_msg = format!("Importing DOI: {}...", doi);
+
+      let input = sender.input_sender().clone();
+      sender.command(move |_out, _shutdown| async move {
+        let result = match api::fetch_doi(&doi).await {
           Ok(bib) => AppMsg::FetchSuccess(bib),
           Err(e) => AppMsg::FetchError(e.to_string()),
         };
@@ -228,29 +253,60 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
 
     // --- Core Logic ---
     AppMsg::AddBiblatexEntry(mut entry) => {
-      // 1. Generate Base Key
       let base_key = core::keygen::generate_key(&entry, &model.key_config);
-
-      // 2. Ensure Uniqueness (Suffixes)
-      // Checks against the current database to prevent overwrites
       let unique_key = ensure_unique(&base_key, &model.bibliography);
       entry.key = unique_key;
 
-      // 3. Add to backend
       model.bibliography.insert(entry.clone());
-
-      // 4. Add to UI
-      let ui_entry = to_ui_entry(&entry);
-      model.entries.guard().push_back(ui_entry);
+      model.entries.guard().push_back(to_ui_entry(&entry));
     }
 
-    AppMsg::DeleteEntry(key) => {
-      model.bibliography.remove(&key);
-      model.entries.guard().clear();
-      for entry in model.bibliography.iter() {
-        model.entries.guard().push_back(to_ui_entry(entry));
+    // --- Row Actions ---
+    AppMsg::HandleRowOutput(output) => match output {
+      BibEntryOutput::Delete(key) => {
+        model.bibliography.remove(&key);
+        model.entries.guard().clear();
+        for entry in model.bibliography.iter() {
+          model.entries.guard().push_back(to_ui_entry(entry));
+        }
+        model.status_msg = format!("Deleted entry: {}", key);
       }
-    }
+      BibEntryOutput::Select(key) => {
+        if let Some(entry) = model.bibliography.get(&key) {
+          let bib_string = entry
+            .to_bibtex_string()
+            .unwrap_or_else(|e| format!("% Error: {}", e));
+          model
+            .details_dialog
+            .sender()
+            .send(DetailsDialogMsg::Open(key, bib_string))
+            .expect("Failed to open dialog");
+        }
+      }
+    },
+
+    AppMsg::FinishEditEntry(old_key, new_source) => match Bibliography::parse(&new_source) {
+      Ok(bib) => {
+        if let Some(new_entry) = bib.iter().next() {
+          model.bibliography.remove(&old_key);
+          model.bibliography.insert(new_entry.clone());
+          model.entries.guard().clear();
+          for entry in model.bibliography.iter() {
+            model.entries.guard().push_back(to_ui_entry(entry));
+          }
+          model.status_msg = format!("Updated: {}", new_entry.key);
+        } else {
+          model
+            .alert
+            .emit(AlertMsg::Show("No entry found in text.".into()));
+        }
+      }
+      Err(e) => {
+        model
+          .alert
+          .emit(AlertMsg::Show(format!("Parse Error:\n{}", e)));
+      }
+    },
 
     AppMsg::ClearAll => {
       model.bibliography = Bibliography::new();
@@ -262,10 +318,8 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       let all_entries: Vec<biblatex::Entry> = model.bibliography.iter().cloned().collect();
       model.bibliography = Bibliography::new();
       model.entries.guard().clear();
-
       let mut count = 0;
       for entry in all_entries {
-        // This re-uses AddBiblatexEntry, so suffixes are applied automatically!
         sender.input(AppMsg::AddBiblatexEntry(entry));
         count += 1;
       }
@@ -285,25 +339,21 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
           Ok(content) => {
             let mut success_count = 0;
             let mut errors = Vec::new();
-
             match Bibliography::parse(&content) {
               Ok(bib) => {
                 let mut batch_keys = HashSet::new();
                 for entry in bib.iter() {
-                  // Basic de-duplication within the batch itself
                   let key = entry.key.clone();
                   if batch_keys.contains(&key) {
                     continue;
                   }
                   batch_keys.insert(key);
-
                   sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
                   success_count += 1;
                 }
               }
               Err(e) => errors.push(format!("Full Parse Error: {}", e)),
             }
-
             if errors.is_empty() {
               model.status_msg = format!("Loaded {} entries.", success_count);
             } else {
