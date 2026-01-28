@@ -59,9 +59,9 @@ sudo pacman -S gtk4 libadwaita base-devel
 ### Building from Source
 
 ```bash
-git clone [https://github.com/mavensgroup/mkbib-rs.git](https://github.com/mavensgroup/mkbib-rs.git)
-cd mkbib-rs
-cargo install --path .
+git clone git@github.com:mavens-group/mkbib.git
+cd mkbib
+cargo install --path . --root ~/.local
 
 ```
 

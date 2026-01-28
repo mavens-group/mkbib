@@ -1,8 +1,9 @@
+// src/app/update.rs
 use biblatex::Bibliography;
 use relm4::prelude::*;
 use relm4_components::open_dialog::{OpenDialogMsg, OpenDialogResponse};
 use relm4_components::save_dialog::{SaveDialogMsg, SaveDialogResponse};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::alert::AlertMsg;
 use super::model::{AppModel, AppMsg};
@@ -12,7 +13,7 @@ use crate::ui;
 use crate::ui::details_dialog::DetailsDialogMsg;
 use crate::ui::preferences::PreferencesMsg;
 use crate::ui::row::BibEntryOutput;
-use crate::ui::search_dialog::SearchDialogMsg; // <--- NEW
+use crate::ui::search_dialog::SearchDialogMsg;
 
 // --- HELPERS ---
 
@@ -188,13 +189,10 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       if query.is_empty() {
         return;
       }
-
       model.is_loading = true;
       model.status_msg = format!("Searching Crossref for: {}...", query);
 
       let input = sender.input_sender().clone();
-
-      // Spawn command to get suggestions list
       sender.command(move |_out, _shutdown| async move {
         match api::search_crossref_suggestions(&query).await {
           Ok(items) => input.send(AppMsg::SearchResultsLoaded(items)).unwrap(),
@@ -203,7 +201,7 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
       });
     }
 
-    // New: Results arrived, show dialog
+    // --- Search Results Handling ---
     AppMsg::SearchResultsLoaded(items) => {
       model.is_loading = false;
       if items.is_empty() {
@@ -212,101 +210,105 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
           .alert
           .emit(AlertMsg::ShowInfo("No results found on Crossref.".into()));
       } else {
-        model.status_msg = format!("Found {} results.", items.len());
+        model.status_msg = "Select an item to import.".to_string();
         model
           .search_dialog
           .emit(SearchDialogMsg::ShowResults(items));
       }
     }
 
-    // New: User selected a result from dialog
+    // FIX: Handle DOI selected from Search Dialog
     AppMsg::FetchSelectedDoi(doi) => {
-      model.is_loading = true;
-      model.status_msg = format!("Importing DOI: {}...", doi);
-
-      let input = sender.input_sender().clone();
-      sender.command(move |_out, _shutdown| async move {
-        let result = match api::fetch_doi(&doi).await {
-          Ok(bib) => AppMsg::FetchSuccess(bib),
-          Err(e) => AppMsg::FetchError(e.to_string()),
-        };
-        input.send(result).expect("Failed to send async result");
-      });
+      model.doi_input = doi;
+      sender.input(AppMsg::FetchDoi);
     }
 
+    // --- Async Results ---
     AppMsg::FetchSuccess(bib) => {
       model.is_loading = false;
-      let count = bib.iter().count();
-      model.status_msg = format!("Fetched {} entries.", count);
+      let mut count = 0;
       for entry in bib.iter() {
         sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
+        count += 1;
+      }
+      if count > 0 {
+        model.status_msg = format!("Successfully imported {} entry.", count);
+        model.doi_input = String::new();
+      } else {
+        model.status_msg = "No entries found in response.".to_string();
       }
     }
 
     AppMsg::FetchError(err) => {
       model.is_loading = false;
-      model.status_msg = "Fetch failed.".to_string();
-      model
-        .alert
-        .emit(AlertMsg::Show(format!("Network Error:\n{}", err)));
+      model.status_msg = "Error occurred.".to_string();
+      model.alert.emit(AlertMsg::Show(err));
     }
 
-    // --- Core Logic ---
+    // --- Core Entry Management ---
     AppMsg::AddBiblatexEntry(mut entry) => {
-      let base_key = core::keygen::generate_key(&entry, &model.key_config);
-      let unique_key = ensure_unique(&base_key, &model.bibliography);
-      entry.key = unique_key;
+      if entry.key.is_empty() {
+        let new_key = core::keygen::generate_key(&entry, &model.key_config);
+        entry.key = new_key;
+      }
+
+      let unique_key = ensure_unique(&entry.key, &model.bibliography);
+      entry.key = unique_key.clone();
 
       model.bibliography.insert(entry.clone());
-      model.entries.guard().push_back(to_ui_entry(&entry));
+      model.entries.guard().push_front(to_ui_entry(&entry));
     }
 
-    // --- Row Actions ---
     AppMsg::HandleRowOutput(output) => match output {
       BibEntryOutput::Delete(key) => {
         model.bibliography.remove(&key);
-        model.entries.guard().clear();
-        for entry in model.bibliography.iter() {
-          model.entries.guard().push_back(to_ui_entry(entry));
+        // FIX: Calculate index first to drop immutable borrow, then remove
+        let mut guard = model.entries.guard();
+        let idx_opt = guard.iter().position(|e| e.key == key);
+        if let Some(idx) = idx_opt {
+          guard.remove(idx);
         }
         model.status_msg = format!("Deleted entry: {}", key);
       }
       BibEntryOutput::Select(key) => {
         if let Some(entry) = model.bibliography.get(&key) {
-          let bib_string = entry
+          // FIX: Handle the Result from entry.to_bibtex_string()
+          let content = entry
             .to_bibtex_string()
-            .unwrap_or_else(|e| format!("% Error: {}", e));
+            .unwrap_or_else(|e| format!("% Error generating BibTeX: {}", e));
+
           model
             .details_dialog
-            .sender()
-            .send(DetailsDialogMsg::Open(key, bib_string))
-            .expect("Failed to open dialog");
+            .emit(DetailsDialogMsg::Open(key, content));
         }
       }
     },
 
-    AppMsg::FinishEditEntry(old_key, new_source) => match Bibliography::parse(&new_source) {
-      Ok(bib) => {
-        if let Some(new_entry) = bib.iter().next() {
-          model.bibliography.remove(&old_key);
-          model.bibliography.insert(new_entry.clone());
-          model.entries.guard().clear();
-          for entry in model.bibliography.iter() {
-            model.entries.guard().push_back(to_ui_entry(entry));
+    AppMsg::FinishEditEntry(original_key, new_content) => {
+      match Bibliography::parse(&new_content) {
+        Ok(mut bib) => {
+          if let Some(new_entry) = bib.iter_mut().next() {
+            model.bibliography.remove(&original_key);
+
+            // FIX: Calculate index first to drop immutable borrow, then remove
+            let mut guard = model.entries.guard();
+            let idx_opt = guard.iter().position(|e| e.key == original_key);
+            if let Some(idx) = idx_opt {
+              guard.remove(idx);
+            }
+            drop(guard);
+
+            sender.input(AppMsg::AddBiblatexEntry(new_entry.clone()));
+            model.status_msg = "Entry updated.".to_string();
           }
-          model.status_msg = format!("Updated: {}", new_entry.key);
-        } else {
+        }
+        Err(e) => {
           model
             .alert
-            .emit(AlertMsg::Show("No entry found in text.".into()));
+            .emit(AlertMsg::Show(format!("Invalid BibTeX:\n{}", e)));
         }
       }
-      Err(e) => {
-        model
-          .alert
-          .emit(AlertMsg::Show(format!("Parse Error:\n{}", e)));
-      }
-    },
+    }
 
     AppMsg::ClearAll => {
       model.bibliography = Bibliography::new();
@@ -315,62 +317,58 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
     }
 
     AppMsg::RegenerateAllKeys => {
-      let all_entries: Vec<biblatex::Entry> = model.bibliography.iter().cloned().collect();
+      let old_entries: Vec<_> = model.bibliography.iter().map(|e| e.clone()).collect();
+
       model.bibliography = Bibliography::new();
       model.entries.guard().clear();
+
       let mut count = 0;
-      for entry in all_entries {
+      for mut entry in old_entries {
+        entry.key = core::keygen::generate_key(&entry, &model.key_config);
         sender.input(AppMsg::AddBiblatexEntry(entry));
         count += 1;
       }
       model.status_msg = format!("Regenerated keys for {} entries.", count);
     }
 
-    AppMsg::UpdateKeyConfig(cfg) => {
-      model.key_config = cfg;
+    AppMsg::UpdateKeyConfig(config) => {
+      model.key_config = config;
       core::config::save(&model.key_config);
-      model.status_msg = "Configuration saved.".to_string();
+      model.status_msg = "Preferences saved.".to_string();
     }
 
-    // --- Dialog Responses ---
+    // --- File I/O Responses ---
     AppMsg::OpenResponse(resp) => {
       if let OpenDialogResponse::Accept(path) = resp {
-        match std::fs::read_to_string(&path) {
-          Ok(content) => {
-            let mut success_count = 0;
-            let mut errors = Vec::new();
-            match Bibliography::parse(&content) {
-              Ok(bib) => {
-                let mut batch_keys = HashSet::new();
-                for entry in bib.iter() {
-                  let key = entry.key.clone();
-                  if batch_keys.contains(&key) {
-                    continue;
-                  }
-                  batch_keys.insert(key);
-                  sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
-                  success_count += 1;
-                }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+          model.status_msg = format!("Loading {}...", path.display());
+
+          match Bibliography::parse(&content) {
+            Ok(bib) => {
+              let mut count = 0;
+              for entry in bib.iter() {
+                sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
+                count += 1;
               }
-              Err(e) => errors.push(format!("Full Parse Error: {}", e)),
+              model.status_msg = format!("Loaded {} entries from file.", count);
             }
-            if errors.is_empty() {
-              model.status_msg = format!("Loaded {} entries.", success_count);
-            } else {
+            Err(e) => {
               model
                 .alert
-                .emit(AlertMsg::Show(format!("Errors:\n{:?}", errors)));
+                .emit(AlertMsg::Show(format!("Parse Error:\n{}", e)));
             }
           }
-          Err(e) => model
+        } else {
+          model
             .alert
-            .emit(AlertMsg::Show(format!("File Error:\n{}", e))),
+            .emit(AlertMsg::Show("Failed to read file.".into()));
         }
       }
     }
 
     AppMsg::SaveResponse(resp) => {
       if let SaveDialogResponse::Accept(path) = resp {
+        // FIX: bibliography.to_bibtex_string() returns String (not Result)
         let output = model.bibliography.to_bibtex_string();
         if std::fs::write(&path, output).is_ok() {
           model.status_msg = "Library saved.".to_string();
