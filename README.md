@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/org.mavensgroup.mkbib.svg" alt="MkBib Logo" width="120" height="120">
+  <img src="assets/mkbib.svg" alt="MkBib Logo" width="120" height="120">
 
   # MkBib
 
