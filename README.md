@@ -1,14 +1,17 @@
 <div align="center">
 
-  <img src="assets/mkbib.svg" alt="MkBib Logo" width="120" height="120">
+  <img src="assets/org.mavensgroup.mkbib.svg" alt="MkBib Logo" width="120" height="120">
 
   # MkBib
 
   **A high-performance BibTeX manager for the Rust ecosystem.**
 
-  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-  [![Rust](https://img.shields.io/badge/Built%20With-Rust-grey)](https://www.rust-lang.org/)
-  [![CI](https://github.com/mavensgroup/mkbib-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/mavensgroup/mkbib-rs/actions)
+![License](https://img.shields.io/badge/license-LGPLv3-blue.svg)
+![Language](https://img.shields.io/badge/rust-1.70%2B-orange.svg)
+![GTK4](https://img.shields.io/badge/Toolkit-GTK4-46a946?logo=gtk&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)
+![Windows](https://img.shields.io/badge/Windows-fcc624?logo=microsoft&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-fcc624?logo=apple&logoColor=black)
 
 </div>
 
