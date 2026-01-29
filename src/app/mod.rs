@@ -1,5 +1,3 @@
-// src/app/mod.rs
-
 #![allow(unused_assignments)]
 
 use biblatex::Bibliography;
@@ -20,7 +18,9 @@ pub use model::{AppModel, AppMsg};
 use self::alert::AlertModel;
 use crate::core;
 use crate::menu;
+use crate::ui;
 use crate::ui::details_dialog::{DetailsDialogModel, DetailsDialogOutput};
+use crate::ui::duplicate_dialog::{DuplicateDialogModel, DuplicateDialogOutput}; // <--- FIX 1: ADD IMPORT
 use crate::ui::preferences::{PreferencesModel, PreferencesOutput};
 use crate::ui::row::BibEntryOutput;
 use crate::ui::search_dialog::{SearchDialogModel, SearchDialogOutput};
@@ -78,6 +78,7 @@ impl Component for AppModel {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        // FIX 2: Load config FIRST so 'key_config' variable exists
         let key_config = core::config::load();
 
         menu::actions_file::init(&root, sender.clone());
@@ -104,6 +105,14 @@ impl Component for AppModel {
         edit_menu.append(Some("Preferences"), Some("edit.preferences"));
         edit_menu.append(Some("Regenerate Keys"), Some("edit.regenerate_keys"));
         edit_menu.append(Some("Scan for Duplicates"), Some("edit.scan_duplicates"));
+        edit_menu.append(
+            Some("Abbreviate Journal Titles"),
+            Some("edit.abbreviate_journals"),
+        );
+        edit_menu.append(
+            Some("Un-abbreviate Journal Titles"),
+            Some("edit.unabbreviate_journals"),
+        );
         menu_model.append_submenu(Some("Edit"), &edit_menu);
 
         let help_menu = gio::Menu::new();
@@ -156,7 +165,7 @@ impl Component for AppModel {
 
         let preferences = PreferencesModel::builder()
             .transient_for(&root)
-            .launch(key_config.clone())
+            .launch(key_config.clone()) // Now 'key_config' exists!
             .forward(sender.input_sender(), |msg| match msg {
                 PreferencesOutput::ConfigUpdated(cfg) => AppMsg::UpdateKeyConfig(cfg),
             });
@@ -175,6 +184,14 @@ impl Component for AppModel {
                 SearchDialogOutput::FetchDoi(doi) => AppMsg::FetchSelectedDoi(doi),
             });
 
+        // FIX 3: Initialize DuplicateDialog
+        let duplicate_dialog = DuplicateDialogModel::builder()
+            .transient_for(&root)
+            .launch(())
+            .forward(sender.input_sender(), |output| match output {
+                DuplicateDialogOutput::DeleteEntry(key) => AppMsg::DeleteEntry(key),
+            });
+
         let alert = AlertModel::builder()
             .transient_for(&root)
             .launch(())
@@ -184,7 +201,6 @@ impl Component for AppModel {
             bibliography: Bibliography::new(),
             entries,
             current_file_path: None,
-            // REMOVED old fields (doi_input, etc)
             sidebar,
             open_dialog,
             save_dialog,
@@ -192,7 +208,8 @@ impl Component for AppModel {
             alert,
             details_dialog,
             search_dialog,
-            key_config,
+            duplicate_dialog, // Add field
+            key_config,       // Add field
         };
 
         let entries_list_box = model.entries.widget();

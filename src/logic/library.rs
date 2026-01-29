@@ -1,14 +1,18 @@
 // src/logic/library.rs
+#![allow(unused_assignments)]
 
 use crate::app::alert::AlertMsg;
 use crate::app::{AppModel, AppMsg};
-use crate::core::{self, normalize};
+use crate::core;
+use crate::logic::abbreviator;
+use crate::logic::deduplicator;
 use crate::ui::details_dialog::DetailsDialogMsg;
+use crate::ui::duplicate_dialog::DuplicateDialogMsg;
 use crate::ui::row::{BibEntry, BibEntryOutput};
 use crate::ui::sidebar::SidebarMsg;
-use biblatex::Bibliography;
+use biblatex::{Bibliography, Chunk, Spanned};
 use relm4::{ComponentController, ComponentSender};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 fn ensure_unique(base_key: &str, bib: &Bibliography) -> String {
     if bib.get(base_key).is_none() {
@@ -35,7 +39,34 @@ fn ensure_unique(base_key: &str, bib: &Bibliography) -> String {
     }
 }
 
+// FIX: Use 0..0 instead of private Span type
+fn make_normal_chunk(text: &str) -> Vec<Spanned<Chunk>> {
+    vec![Spanned::new(Chunk::Normal(text.to_string()), 0..0)]
+}
+
 pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
+    if model.key_config.abbreviate_journals {
+        if let Some(chunk_val) = entry.fields.get("journal") {
+            let original = core::bib_to_string(chunk_val);
+            let abbr = abbreviator::abbreviate_journal(&original);
+            if !abbr.is_empty() && abbr != original {
+                entry
+                    .fields
+                    .insert("journal".into(), make_normal_chunk(&abbr));
+            }
+        }
+        // Also check journaltitle
+        if let Some(chunk_val) = entry.fields.get("journaltitle") {
+            let original = core::bib_to_string(chunk_val);
+            let abbr = abbreviator::abbreviate_journal(&original);
+            if !abbr.is_empty() && abbr != original {
+                entry
+                    .fields
+                    .insert("journaltitle".into(), make_normal_chunk(&abbr));
+            }
+        }
+    }
+
     if entry.key.is_empty() {
         entry.key = core::keygen::generate_key(&entry, &model.key_config);
     }
@@ -58,7 +89,6 @@ pub fn handle_row_output(model: &mut AppModel, output: BibEntryOutput) {
         BibEntryOutput::Delete(key) => {
             model.bibliography.remove(&key);
 
-            // FIX: Borrow checker E0597 - Force evaluation inside the block
             let idx_opt = {
                 let guard = model.entries.guard();
                 let pos = guard.iter().position(|e| e.key == key);
@@ -88,47 +118,15 @@ pub fn handle_row_output(model: &mut AppModel, output: BibEntryOutput) {
 }
 
 pub fn scan_duplicates(model: &mut AppModel) {
-    let mut fingerprints: HashMap<String, Vec<String>> = HashMap::new();
-    for entry in model.bibliography.iter() {
-        let title = entry
-            .fields
-            .get("title")
-            .map(|t| core::bib_to_string(t))
-            .unwrap_or_default();
-        let year = entry
-            .fields
-            .get("year")
-            .map(|t| core::bib_to_string(t))
-            .unwrap_or_default();
-        let author = entry
-            .fields
-            .get("author")
-            .map(|t| core::bib_to_string(t))
-            .unwrap_or_default();
+    model
+        .sidebar
+        .emit(SidebarMsg::SetStatus("Scanning for duplicates...".into()));
 
-        let fp = format!(
-            "{}|{}|{}",
-            normalize(&title),
-            normalize(&year),
-            normalize(&author)
-        );
-        fingerprints.entry(fp).or_default().push(entry.key.clone());
-    }
+    // 1. Delegate math to deduplicator (Returns structured DuplicateGroup objects)
+    let duplicates = deduplicator::find_duplicates(&model.bibliography);
 
-    let mut report = String::new();
-    let mut duplicate_count = 0;
-    for (_fp, keys) in fingerprints {
-        if keys.len() > 1 {
-            duplicate_count += 1;
-            report.push_str(&format!("• Group {}:\n", duplicate_count));
-            for key in keys {
-                report.push_str(&format!("   - {}\n", key));
-            }
-            report.push('\n');
-        }
-    }
-
-    if duplicate_count == 0 {
+    // 2. UI Feedback
+    if duplicates.is_empty() {
         model
             .sidebar
             .emit(SidebarMsg::SetStatus("Library clean.".to_string()));
@@ -137,16 +135,16 @@ pub fn scan_duplicates(model: &mut AppModel) {
         ));
     } else {
         model.sidebar.emit(SidebarMsg::SetStatus(format!(
-            "Found {} duplicate groups.",
-            duplicate_count
+            "Reviewing {} duplicate groups...",
+            duplicates.len()
         )));
-        model.alert.emit(AlertMsg::ShowInfo(format!(
-            "Found duplicates:\n\n{}",
-            report
-        )));
+
+        // 3. DIAMOND LOGIC: Open the interactive dialog instead of a text alert
+        model
+            .duplicate_dialog
+            .emit(DuplicateDialogMsg::LoadGroups(duplicates));
     }
 }
-
 pub fn regenerate_keys(model: &mut AppModel, sender: ComponentSender<AppModel>) {
     let old_entries: Vec<_> = model.bibliography.iter().map(|e| e.clone()).collect();
     model.bibliography = Bibliography::new();
@@ -175,7 +173,6 @@ pub fn finish_edit(
             if let Some(new_entry) = bib.iter_mut().next() {
                 model.bibliography.remove(&original_key);
 
-                // FIX: Borrow checker E0597 - Force evaluation inside the block
                 let idx_opt = {
                     let guard = model.entries.guard();
                     let pos = guard.iter().position(|e| e.key == original_key);
@@ -197,5 +194,105 @@ pub fn finish_edit(
                 .alert
                 .emit(AlertMsg::Show(format!("Invalid BibTeX:\n{}", e)));
         }
+    }
+}
+
+pub fn abbreviate_all_entries(model: &mut AppModel) {
+    let mut count = 0;
+
+    for entry in model.bibliography.iter_mut() {
+        let mut changed = false;
+
+        let check_field =
+            |field_name: &str, fields: &mut BTreeMap<String, Vec<Spanned<Chunk>>>| -> bool {
+                if let Some(chunk_val) = fields.get(field_name) {
+                    let original = core::bib_to_string(chunk_val);
+                    let abbr = abbreviator::abbreviate_journal(&original);
+
+                    if !abbr.is_empty() && abbr != original {
+                        fields.insert(field_name.into(), make_normal_chunk(&abbr));
+                        return true;
+                    }
+                }
+                false
+            };
+
+        if check_field("journal", &mut entry.fields) {
+            changed = true;
+        }
+
+        if check_field("journaltitle", &mut entry.fields) {
+            changed = true;
+        }
+
+        if changed {
+            count += 1;
+        }
+    }
+
+    if count > 0 {
+        model.entries.guard().clear();
+        for entry in model.bibliography.iter() {
+            model.entries.guard().push_back(BibEntry::from_entry(entry));
+        }
+
+        model.sidebar.emit(SidebarMsg::SetStatus(format!(
+            "Abbreviated {} journals.",
+            count
+        )));
+    } else {
+        model.sidebar.emit(SidebarMsg::SetStatus(
+            "No journals needed abbreviation.".to_string(),
+        ));
+    }
+}
+
+pub fn unabbreviate_all_entries(model: &mut AppModel) {
+    let mut count = 0;
+
+    for entry in model.bibliography.iter_mut() {
+        let mut changed = false;
+
+        let check_field =
+            |field_name: &str, fields: &mut BTreeMap<String, Vec<Spanned<Chunk>>>| -> bool {
+                if let Some(chunk_val) = fields.get(field_name) {
+                    let current_text = core::bib_to_string(chunk_val);
+                    // Try to find the full title
+                    if let Some(full_title) = abbreviator::unabbreviate_journal(&current_text) {
+                        if full_title != current_text {
+                            fields.insert(field_name.into(), make_normal_chunk(&full_title));
+                            return true;
+                        }
+                    }
+                }
+                false
+            };
+
+        if check_field("journal", &mut entry.fields) {
+            changed = true;
+        }
+        if check_field("journaltitle", &mut entry.fields) {
+            changed = true;
+        }
+
+        if changed {
+            count += 1;
+        }
+    }
+
+    if count > 0 {
+        // Refresh UI List
+        model.entries.guard().clear();
+        for entry in model.bibliography.iter() {
+            model.entries.guard().push_back(BibEntry::from_entry(entry));
+        }
+        model.sidebar.emit(SidebarMsg::SetStatus(format!(
+            "Expanded {} journals to full titles.",
+            count
+        )));
+    } else {
+        model.sidebar.emit(SidebarMsg::SetStatus(
+            "No known abbreviations found to expand.".to_string(),
+        ));
     }
 }

@@ -1,7 +1,7 @@
 // src/core/keygen.rs
 use crate::core;
 use biblatex::Entry;
-use serde::{Deserialize, Serialize}; // This relies on features=["derive"]
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KeyPart {
@@ -28,7 +28,11 @@ impl KeyPart {
 pub struct KeyGenConfig {
     pub parts: Vec<KeyPart>,
     pub separator: String,
+    // NEW: Feature flag for journal abbreviations
+    #[serde(default)]
+    pub abbreviate_journals: bool,
 }
+
 impl Default for KeyGenConfig {
     fn default() -> Self {
         Self {
@@ -38,11 +42,13 @@ impl Default for KeyGenConfig {
                 KeyPart::TitleFirstWord,
             ],
             separator: String::new(),
+            abbreviate_journals: false, // Default to disabled
         }
     }
 }
 
 pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
+    // ... (Existing implementation remains unchanged) ...
     let mut segments = Vec::new();
 
     for part in &config.parts {
@@ -58,22 +64,17 @@ pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
                     "Unknown".to_string()
                 }
             }
-            KeyPart::Year => {
-                // FIX: Use core::bib_to_string instead of to_string()
-                entry
-                    .fields
-                    .get("year")
-                    .map(|c| core::bib_to_string(c))
-                    .unwrap_or_else(|| "0000".to_string())
-            }
+            KeyPart::Year => entry
+                .fields
+                .get("year")
+                .map(|c| core::bib_to_string(c))
+                .unwrap_or_else(|| "0000".to_string()),
             KeyPart::ShortYear => {
-                // FIX: Use core::bib_to_string instead of to_string()
                 let y = entry
                     .fields
                     .get("year")
                     .map(|c| core::bib_to_string(c))
                     .unwrap_or_else(|| "0000".to_string());
-
                 if y.len() >= 4 {
                     y[2..].to_string()
                 } else {
@@ -93,11 +94,8 @@ pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
                 .map(|t| t.split_whitespace().next().unwrap_or("").to_string())
                 .unwrap_or_else(|| "Preprint".to_string()),
         };
-
         let sanitized: String = val.chars().filter(|c: &char| c.is_alphanumeric()).collect();
-
         segments.push(sanitized);
     }
-
     segments.join(&config.separator)
 }

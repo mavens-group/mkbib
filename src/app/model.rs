@@ -11,10 +11,11 @@ use super::alert::AlertModel;
 use crate::core::keygen::KeyGenConfig;
 use crate::ui;
 use crate::ui::details_dialog::DetailsDialogModel;
+use crate::ui::duplicate_dialog::DuplicateDialogModel;
 use crate::ui::preferences::PreferencesModel;
 use crate::ui::row::BibEntryOutput;
 use crate::ui::search_dialog::SearchDialogModel;
-use crate::ui::sidebar::SidebarModel; // Import SidebarModel
+use crate::ui::sidebar::SidebarModel;
 
 // --- State ---
 pub struct AppModel {
@@ -30,6 +31,7 @@ pub struct AppModel {
     pub preferences: Controller<PreferencesModel>,
     pub details_dialog: Controller<DetailsDialogModel>,
     pub search_dialog: Controller<SearchDialogModel>,
+    pub duplicate_dialog: Controller<DuplicateDialogModel>,
 
     pub key_config: KeyGenConfig,
 }
@@ -47,6 +49,8 @@ pub enum AppMsg {
     TriggerSave,
     TriggerSaveAs,
     ShowPreferences,
+    AbbreviateAllJournals,
+    UnabbreviateAllJournals,
 
     FetchSuccess(Bibliography),
     FetchError(String),
@@ -59,6 +63,7 @@ pub enum AppMsg {
     ScanDuplicates,
     UpdateKeyConfig(KeyGenConfig),
     AddBiblatexEntry(biblatex::Entry),
+    DeleteEntry(String),
 
     OpenResponse(
         relm4_components::open_dialog::OpenDialogResponse<

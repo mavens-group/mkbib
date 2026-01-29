@@ -1,10 +1,11 @@
 // src/ui/preferences.rs
+
 use crate::core::keygen::{KeyGenConfig, KeyPart};
 use gtk4::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 
-// --- KeyPartRow (Unchanged) ---
+// --- KeyPartRow ---
 #[derive(Debug)]
 pub struct KeyPartRow {
     pub label: String,
@@ -49,7 +50,7 @@ impl FactoryComponent for KeyPartRow {
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         let (idx, part) = init;
         Self {
-            label: format!("{}. {}", idx + 1, part.label()),
+            label: format!("{} - {}", idx + 1, part.label()),
             index: idx,
         }
     }
@@ -57,14 +58,16 @@ impl FactoryComponent for KeyPartRow {
     fn update(&mut self, msg: Self::Input, sender: FactorySender<Self>) {
         match msg {
             KeyPartRowMsg::Remove => {
+                // Send the index back to the parent
                 let _ = sender.output(self.index);
             }
         }
     }
 }
 
-// --- Main Preferences Model ---
+// --- PreferencesModel ---
 
+#[derive(Debug)]
 pub struct PreferencesModel {
     pub config: KeyGenConfig,
     pub parts_list: FactoryVecDeque<KeyPartRow>,
@@ -74,10 +77,11 @@ pub struct PreferencesModel {
 pub enum PreferencesMsg {
     Show,
     Close,
+    Save,
+    SetSeparator(String),
     AddPart(KeyPart),
     RemovePart(usize),
-    SetSeparator(String),
-    Save,
+    ToggleAbbreviate(bool),
 }
 
 #[derive(Debug)]
@@ -86,18 +90,17 @@ pub enum PreferencesOutput {
 }
 
 #[relm4::component(pub)]
-impl Component for PreferencesModel {
+impl SimpleComponent for PreferencesModel {
     type Init = KeyGenConfig;
     type Input = PreferencesMsg;
     type Output = PreferencesOutput;
-    type CommandOutput = ();
 
     view! {
         gtk::Window {
-            set_title: Some("Preferences"),
             set_modal: true,
-            set_default_width: 400,
-            set_default_height: 550,
+            set_default_width: 500,
+            set_default_height: 600,
+            set_title: Some("Preferences"),
             set_hide_on_close: true,
 
             connect_close_request[sender] => move |_| {
@@ -111,96 +114,115 @@ impl Component for PreferencesModel {
                 set_spacing: 12,
 
                 gtk::Label {
-                    set_label: "BibTeX Key Generator",
-                    add_css_class: "title-4",
+                    set_label: "Citation Key Generator",
+                    set_css_classes: &["title-4"],
                     set_halign: gtk::Align::Start,
                 },
 
-                // --- SEPARATOR SELECTION (Using DropDown) ---
+                // --- Separator Settings ---
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 12,
 
                     gtk::Label { set_label: "Separator:" },
-
-                    // FIX: Replaced ComboBoxText with DropDown
-                    gtk::DropDown {
-                        set_model: Some(&gtk::StringList::new(&[
-                            "None (e.g. AuthorYear)",
-                            "Underscore (Author_Year)",
-                            "Hyphen (Author-Year)"
-                        ])),
-
-                        // Set initial selection based on config
-                        set_selected: match model.config.separator.as_str() {
-                            "_" => 1,
-                            "-" => 2,
-                            _ => 0,
-                        },
-
-                        connect_selected_item_notify[sender] => move |dd| {
-                            let sep = match dd.selected() {
-                                1 => "_".to_string(),
-                                2 => "-".to_string(),
-                                _ => "".to_string(),
-                            };
-                            sender.input(PreferencesMsg::SetSeparator(sep));
+                    gtk::Entry {
+                        set_placeholder_text: Some("e.g. - or _"),
+                        set_text: &model.config.separator,
+                        connect_changed[sender] => move |e| {
+                            sender.input(PreferencesMsg::SetSeparator(e.text().into()));
                         }
                     }
                 },
 
                 gtk::Label {
-                    set_label: "Field Order:",
+                    set_label: "Key Format Parts (Drag to reorder - TODO)",
                     set_halign: gtk::Align::Start,
-                    set_margin_top: 8,
+                    add_css_class: "dim-label",
                 },
 
+                // --- Key Parts List ---
                 gtk::Frame {
-                    gtk::ScrolledWindow {
-                        set_height_request: 250,
-                        set_vexpand: true,
-
-                        #[local_ref]
-                        parts_listbox -> gtk::ListBox {
-                            add_css_class: "boxed-list",
-                            set_selection_mode: gtk::SelectionMode::None,
-                        }
+                    #[local_ref]
+                    parts_listbox -> gtk::ListBox {
+                        set_selection_mode: gtk::SelectionMode::None,
+                        add_css_class: "boxed-list",
                     }
+                },
+
+                // --- Add Part Buttons ---
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 6,
+                    set_halign: gtk::Align::Center,
+
+                    gtk::Button {
+                        set_label: "+ Author",
+                        connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::AuthorLastName)),
+                    },
+                    gtk::Button {
+                        set_label: "+ Year",
+                        connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::Year)),
+                    },
+                    gtk::Button {
+                        set_label: "+ Title",
+                        connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::TitleFirstWord)),
+                    },
+                    gtk::Button {
+                        set_label: "+ Journal",
+                        connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::JournalFirstWord)),
+                    },
+                },
+
+                gtk::Separator {
+                    set_margin_top: 10,
+                    set_margin_bottom: 10,
+                },
+
+                // --- Import Settings (NEW SECTION) ---
+                gtk::Label {
+                    set_label: "Import Settings",
+                    set_css_classes: &["title-4"],
+                    set_halign: gtk::Align::Start,
                 },
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 12,
-                    set_margin_top: 8,
 
-                    gtk::MenuButton {
-                        set_label: "Add Field...",
-                        set_icon_name: "list-add-symbolic",
-                        set_direction: gtk::ArrowType::Up,
-
-                        #[wrap(Some)]
-                        set_popover = &gtk::Popover {
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_spacing: 4,
-                                set_margin_all: 4,
-
-                                gtk::Button { set_label: "Author (Last Name)", connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::AuthorLastName)) },
-                                gtk::Button { set_label: "Year (Full: 2024)", connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::Year)) },
-                                gtk::Button { set_label: "Year (Short: 24)", connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::ShortYear)) },
-                                gtk::Button { set_label: "Title (1st Word)", connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::TitleFirstWord)) },
-                                gtk::Button { set_label: "Journal (1st Word)", connect_clicked[sender] => move |_| sender.input(PreferencesMsg::AddPart(KeyPart::JournalFirstWord)) },
-                            }
-                        }
+                    gtk::Label {
+                        set_label: "Auto-abbreviate Journal Titles on Import",
+                        set_hexpand: true,
+                        set_halign: gtk::Align::Start,
                     },
 
-                    gtk::Box { set_hexpand: true },
+                    gtk::Switch {
+                        #[watch]
+                        set_active: model.config.abbreviate_journals,
+                        connect_state_set[sender] => move |_, state| {
+                            sender.input(PreferencesMsg::ToggleAbbreviate(state));
+                            gtk::glib::Propagation::Stop
+                        }
+                    }
+                },
+
+                gtk::Box {
+                    set_vexpand: true, // Spacer
+                },
+
+                // --- Actions ---
+                gtk::Box {
+                    set_halign: gtk::Align::End,
+                    set_spacing: 12,
 
                     gtk::Button {
-                        set_label: "Apply & Save",
+                        set_label: "Cancel",
+                        connect_clicked[sender] => move |_| sender.input(PreferencesMsg::Close),
+                    },
+                    gtk::Button {
+                        set_label: "Save Configuration",
                         add_css_class: "suggested-action",
                         connect_clicked[sender] => move |_| sender.input(PreferencesMsg::Save),
-                    }
+                    },
                 }
             }
         }
@@ -208,34 +230,35 @@ impl Component for PreferencesModel {
 
     fn init(
         config: Self::Init,
-        root: Self::Root,
+        _root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let mut parts_list = FactoryVecDeque::builder()
+        let parts_list = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
-            .forward(sender.input_sender(), |idx| PreferencesMsg::RemovePart(idx));
+            .forward(sender.input_sender(), |output| {
+                PreferencesMsg::RemovePart(output)
+            });
 
-        for (i, part) in config.parts.iter().enumerate() {
-            parts_list.guard().push_back((i, part.clone()));
+        let mut model = PreferencesModel { config, parts_list };
+
+        // Populate initial list
+        for (i, part) in model.config.parts.iter().enumerate() {
+            model.parts_list.guard().push_back((i, part.clone()));
         }
 
-        let model = PreferencesModel { config, parts_list };
-
-        // FIX: Ensure this name matches the local_ref
         let parts_listbox = model.parts_list.widget();
-
         let widgets = view_output!();
+
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
+    fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             PreferencesMsg::Show => {
-                root.set_visible(true);
-                root.present();
+                // Window visibility handled by view! watch
             }
             PreferencesMsg::Close => {
-                root.set_visible(false);
+                // Handled by view! connect_close_request
             }
 
             PreferencesMsg::SetSeparator(s) => {
@@ -258,8 +281,11 @@ impl Component for PreferencesModel {
                 }
             }
 
+            PreferencesMsg::ToggleAbbreviate(state) => {
+                self.config.abbreviate_journals = state;
+            }
+
             PreferencesMsg::Save => {
-                root.set_visible(false);
                 let _ = sender.output(PreferencesOutput::ConfigUpdated(self.config.clone()));
             }
         }

@@ -29,6 +29,19 @@ pub fn init(root: &gtk::ApplicationWindow, sender: ComponentSender<AppModel>) {
         sender.input(AppMsg::ScanDuplicates);
     }));
     group.add_action(&action_scan);
+
+    let action_abbr = gio::SimpleAction::new("abbreviate_journals", None);
+    action_abbr.connect_activate(clone!(@strong sender => move |_, _| {
+        sender.input(AppMsg::AbbreviateAllJournals);
+    }));
+    group.add_action(&action_abbr);
+
+    let action_unabbr = gio::SimpleAction::new("unabbreviate_journals", None);
+    action_unabbr.connect_activate(clone!(@strong sender => move |_, _| {
+        sender.input(AppMsg::UnabbreviateAllJournals);
+    }));
+    group.add_action(&action_unabbr);
+
     // CRITICAL FIX: Use "edit" group to avoid overwriting "win" group from File actions
     root.insert_action_group("edit", Some(&group));
 }
