@@ -15,3 +15,11 @@ pub fn bib_to_string(val: &[Spanned<Chunk>]) -> String {
         })
         .collect()
 }
+
+// NEW HELPER
+pub fn normalize(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}

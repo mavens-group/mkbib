@@ -2,6 +2,7 @@
 mod api;
 mod app;
 mod core;
+mod logic; // NEW
 mod menu;
 mod ui;
 

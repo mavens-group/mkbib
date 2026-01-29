@@ -1,8 +1,11 @@
-use biblatex::{Bibliography, Entry};
+// src/app/model.rs
+
+use biblatex::Bibliography;
 use relm4::factory::FactoryVecDeque;
 use relm4::Controller;
-use relm4_components::open_dialog::{OpenDialog, OpenDialogResponse, SingleSelection};
-use relm4_components::save_dialog::{SaveDialog, SaveDialogResponse};
+use relm4_components::open_dialog::OpenDialog;
+use relm4_components::save_dialog::SaveDialog;
+use std::path::PathBuf;
 
 use super::alert::AlertModel;
 use crate::core::keygen::KeyGenConfig;
@@ -10,73 +13,57 @@ use crate::ui;
 use crate::ui::details_dialog::DetailsDialogModel;
 use crate::ui::preferences::PreferencesModel;
 use crate::ui::row::BibEntryOutput;
-use crate::ui::search_dialog::SearchDialogModel; // <--- NEW
+use crate::ui::search_dialog::SearchDialogModel;
+use crate::ui::sidebar::SidebarModel; // Import SidebarModel
 
 // --- State ---
-
 pub struct AppModel {
     pub bibliography: Bibliography,
     pub entries: FactoryVecDeque<ui::row::BibEntry>,
+    pub current_file_path: Option<PathBuf>,
 
-    // UI State
-    pub doi_input: String,
-    pub search_input: String,
-    pub manual_bib_input: String,
-
-    pub is_loading: bool,
-    pub status_msg: String,
-
-    // Child Components
+    // Child Components (Sidebar now handles inputs & status)
+    pub sidebar: Controller<SidebarModel>,
     pub open_dialog: Controller<OpenDialog>,
     pub save_dialog: Controller<SaveDialog>,
     pub alert: Controller<AlertModel>,
     pub preferences: Controller<PreferencesModel>,
     pub details_dialog: Controller<DetailsDialogModel>,
-    pub search_dialog: Controller<SearchDialogModel>, // <--- NEW
+    pub search_dialog: Controller<SearchDialogModel>,
 
-    // Config
     pub key_config: KeyGenConfig,
 }
 
 // --- Messages ---
-
 #[derive(Debug)]
 pub enum AppMsg {
-    // UI Inputs
-    UpdateDoi(String),
-    UpdateSearch(String),
-    UpdateManualBib(String),
+    // These now carry data directly from the Sidebar!
+    FetchDoi(String),
+    FetchSearch(String),
+    ParseManualBib(String),
+    ClearAll,
 
-    // Triggers
     TriggerOpen,
     TriggerSave,
     TriggerSaveAs,
     ShowPreferences,
-    ParseManualBib,
 
-    // Async Triggers
-    FetchDoi,
-    FetchSearch, // Now triggers the "Suggestion Search"
-
-    // Async Results
     FetchSuccess(Bibliography),
     FetchError(String),
+    SearchResultsLoaded(Vec<crate::api::SearchResultItem>),
+    FetchSelectedDoi(String),
 
-    // Search Dialog Logic
-    SearchResultsLoaded(Vec<crate::api::SearchResultItem>), // <--- NEW
-    FetchSelectedDoi(String),                               // <--- NEW
-
-    // Core Logic
     HandleRowOutput(BibEntryOutput),
     FinishEditEntry(String, String),
-
-    ClearAll,
     RegenerateAllKeys,
     ScanDuplicates,
     UpdateKeyConfig(KeyGenConfig),
-    AddBiblatexEntry(Entry),
+    AddBiblatexEntry(biblatex::Entry),
 
-    // Dialog Responses
-    OpenResponse(OpenDialogResponse<SingleSelection>),
-    SaveResponse(SaveDialogResponse),
+    OpenResponse(
+        relm4_components::open_dialog::OpenDialogResponse<
+            relm4_components::open_dialog::SingleSelection,
+        >,
+    ),
+    SaveResponse(relm4_components::save_dialog::SaveDialogResponse),
 }

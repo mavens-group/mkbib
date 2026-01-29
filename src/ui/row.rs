@@ -1,5 +1,6 @@
+use crate::core;
 use gtk4::prelude::*;
-use relm4::prelude::*;
+use relm4::prelude::*; // Add this if not present
 
 #[derive(Debug, Clone)]
 pub struct BibEntry {
@@ -7,6 +8,24 @@ pub struct BibEntry {
     pub title: String,
     pub kind: String,
     pub is_error: bool,
+}
+
+impl BibEntry {
+    // NEW HELPER
+    pub fn from_entry(entry: &biblatex::Entry) -> Self {
+        let title = entry
+            .fields
+            .get("title")
+            .map(|t| core::bib_to_string(t))
+            .unwrap_or_else(|| "Untitled".to_string());
+
+        BibEntry {
+            key: entry.key.clone(),
+            title,
+            kind: format!("{}", entry.entry_type),
+            is_error: false,
+        }
+    }
 }
 
 #[derive(Debug)]

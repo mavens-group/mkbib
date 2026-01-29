@@ -77,7 +77,9 @@ impl FactoryComponent for SearchResultRow {
         match msg {
             SearchResultRowMsg::Import => {
                 // Send the DOI up to the Dialog
-                sender.output(self.data.doi.clone());
+                // sender.output(self.data.doi.clone());
+                // let _ = sender.output(SearchDialogOutput::FetchDoi(self.data.doi.clone()));
+                let _ = sender.output(self.data.doi.clone());
             }
         }
     }
