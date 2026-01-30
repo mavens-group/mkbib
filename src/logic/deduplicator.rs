@@ -29,45 +29,55 @@ pub struct DuplicateGroup {
 /// Returns a list of conflicts to be resolved.
 pub fn find_duplicates(bib: &Bibliography) -> Vec<DuplicateGroup> {
     let mut groups: Vec<DuplicateGroup> = Vec::new();
-    let entries: Vec<_> = bib.iter().collect();
-    let mut visited: Vec<bool> = vec![false; entries.len()];
 
-    // Pairwise comparison: O(N^2)
-    for i in 0..entries.len() {
+    // Collect references to entries so we can index them
+    let entries: Vec<_> = bib.iter().collect();
+    let n = entries.len();
+
+    if n < 2 {
+        return groups;
+    }
+
+    // --- OPTIMIZATION (Speed) ---
+    // Pre-compute normalized titles ONCE.
+    // We removed 'year' from here because strict year checking causes
+    // false negatives (e.g., Preprint 2023 vs Paper 2024).
+    let normalized_titles: Vec<String> = entries.iter().map(|e| get_title_normalized(e)).collect();
+    // ----------------------------
+
+    let mut visited: Vec<bool> = vec![false; n];
+
+    // Pairwise comparison
+    for i in 0..n {
         if visited[i] {
             continue;
         }
 
-        let entry_a = entries[i];
-        let title_a_norm = get_title_normalized(entry_a);
-        let year_a = get_year(entry_a);
+        let title_a = &normalized_titles[i];
+
+        // Optimization: Skip very short titles to avoid noise (e.g. "Intro", "Data")
+        if title_a.len() < 5 {
+            continue;
+        }
 
         let mut current_candidates = Vec::new();
 
-        for j in (i + 1)..entries.len() {
+        for j in (i + 1)..n {
             if visited[j] {
                 continue;
             }
 
-            let entry_b = entries[j];
-            let year_b = get_year(entry_b);
+            let title_b = &normalized_titles[j];
 
-            // Optimization 1: Duplicate papers almost always have the same year.
-            // This drastically reduces false positives and speeds up scanning.
-            if year_a != year_b {
-                continue;
-            }
+            // --- ROBUSTNESS LOGIC ---
+            // We removed the year check. Now we ONLY compare titles.
+            // This relies on the Jaro-Winkler math being fast enough for N < 2000.
+            let similarity = strsim::jaro_winkler(title_a, title_b);
 
-            let title_b_norm = get_title_normalized(entry_b);
-
-            // Optimization 2: Jaro-Winkler Similarity
             // Threshold 0.93 allows for small typos or British/American spelling diffs
-            // but prevents "Introduction to X" vs "Introduction to Y" false positives.
-            let similarity = strsim::jaro_winkler(&title_a_norm, &title_b_norm);
-
             if similarity > 0.93 {
                 current_candidates.push(DuplicateCandidate {
-                    info: extract_info(entry_b),
+                    info: extract_info(entries[j]),
                     similarity,
                 });
                 visited[j] = true;
@@ -77,12 +87,11 @@ pub fn find_duplicates(bib: &Bibliography) -> Vec<DuplicateGroup> {
         // If we found any candidates for this entry, create a group
         if !current_candidates.is_empty() {
             groups.push(DuplicateGroup {
-                original: extract_info(entry_a),
+                original: extract_info(entries[i]),
                 candidates: current_candidates,
             });
+            visited[i] = true; // Mark original as handled
         }
-
-        visited[i] = true;
     }
 
     groups

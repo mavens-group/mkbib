@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 // 1. Embedded Defaults (Fallback)
-const DEFAULT_JOURNALS_JSON: &str = include_str!("../../journals.json");
+const DEFAULT_JOURNALS_JSON: &str = include_str!("../../journals.json"); // Ensure path is correct
 const STARTER_LTWA: &str = "
 Word,Abbreviation
 Journal,J.
@@ -45,44 +45,59 @@ fn get_stopwords() -> &'static HashSet<&'static str> {
     })
 }
 
+// --- Helper: Normalize keys for robust matching ---
+// "Phys. Rev. B" -> "physrevb"
+// This allows "phys rev b" to match "Phys. Rev. B"
+fn normalize_key(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_lowercase()
+}
+
 // --- Tier 1: Exact Match Dictionary ---
 fn get_exact_map() -> &'static HashMap<String, String> {
     EXACT_MAP.get_or_init(|| {
         let mut m = HashMap::new();
+        let mut loaded = false;
 
-        let mut loaded_from_disk = false;
-
+        // 1. Try Loading from Disk
         if let Some(dir) = get_data_dir() {
+            // Ensure directory exists
             if !dir.exists() {
                 let _ = fs::create_dir_all(&dir);
             }
+
             let json_path = dir.join("journals.json");
 
-            // If missing, write the embedded default so user can edit it later
+            // If missing, write default so user can edit it
             if !json_path.exists() {
                 let _ = fs::write(&json_path, DEFAULT_JOURNALS_JSON);
             }
 
-            // Try loading from disk
+            // Read
             if let Ok(content) = fs::read_to_string(&json_path) {
                 if let Ok(parsed) = serde_json::from_str::<HashMap<String, String>>(&content) {
-                    m.extend(parsed);
-                    loaded_from_disk = true;
+                    // Insert normalized keys (lowercase)
+                    for (k, v) in parsed {
+                        m.insert(k.to_lowercase(), v);
+                    }
+                    loaded = true;
                 }
             }
         }
 
-        // Fallback: Use embedded if disk read failed
-        if !loaded_from_disk {
-            if let Ok(parsed) =
-                serde_json::from_str::<HashMap<String, String>>(DEFAULT_JOURNALS_JSON)
-            {
-                m.extend(parsed);
+        // 2. Fallback to Embedded if Disk Failed
+        if !loaded {
+            let parsed: HashMap<String, String> =
+                serde_json::from_str(DEFAULT_JOURNALS_JSON).unwrap_or_default();
+            for (k, v) in parsed {
+                m.insert(k.to_lowercase(), v);
             }
         }
 
-        // Normalize keys to lowercase for case-insensitive lookup
-        m.into_iter().map(|(k, v)| (k.to_lowercase(), v)).collect()
+        m
     })
 }
 
@@ -91,7 +106,7 @@ fn get_ltwa() -> &'static HashMap<String, String> {
     WORD_MAP.get_or_init(|| {
         let mut m = HashMap::new();
 
-        // 1. Load Starter List
+        // 1. Load Starter List (Embedded)
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(true)
             .from_reader(STARTER_LTWA.as_bytes());
@@ -104,11 +119,10 @@ fn get_ltwa() -> &'static HashMap<String, String> {
             }
         }
 
-        // 2. Load External "ltwa.csv" from Config Dir
-        if let Some(proj) = ProjectDirs::from("com", "mkbib", "mkbib-rs") {
-            let csv_path = proj.config_dir().join("ltwa.csv");
+        // 2. Load External "ltwa.csv" from Config Dir (User Overrides)
+        if let Some(dir) = get_data_dir() {
+            let csv_path = dir.join("ltwa.csv");
             if csv_path.exists() {
-                // Explicitly type the reader to help the compiler
                 if let Ok(mut file_rdr) = csv::Reader::from_path(csv_path) {
                     for result in file_rdr.records() {
                         if let Ok(record) = result {
@@ -126,14 +140,19 @@ fn get_ltwa() -> &'static HashMap<String, String> {
     })
 }
 
-//  helper function to build the reverse map
+// --- Helper: Reverse Map (Abbr -> Full) ---
 fn get_reverse_map() -> &'static HashMap<String, String> {
     REVERSE_EXACT_MAP.get_or_init(|| {
         let forward = get_exact_map();
         let mut m = HashMap::new();
+
         for (full_title, abbr) in forward {
-            // Map "j. phys." -> "Journal of Physics"
+            // STRICT MAPPING: "phys. rev. b" -> "Physical Review B"
             m.insert(abbr.to_lowercase(), full_title.clone());
+
+            // FUZZY MAPPING: "physrevb" -> "Physical Review B"
+            // This handles cases where user types "phys rev b" (no dots)
+            m.insert(normalize_key(abbr), full_title.clone());
         }
         m
     })
@@ -147,7 +166,7 @@ pub fn abbreviate_journal(title: &str) -> String {
         return String::new();
     }
 
-    // Tier 1: Exact Match (Case-Insensitive)
+    // Tier 1: Exact Match (Fast)
     let exact_map = get_exact_map();
     if let Some(abbr) = exact_map.get(&title_clean.to_lowercase()) {
         return abbr.clone();
@@ -157,33 +176,55 @@ pub fn abbreviate_journal(title: &str) -> String {
     let word_map = get_ltwa();
     let stops = get_stopwords();
 
-    title_clean
-        .split_whitespace()
-        .filter(|token| {
-            // Remove stop words
-            let clean = token
-                .to_lowercase()
-                .trim_matches(|c: char| !c.is_alphabetic())
-                .to_string();
-            !stops.contains(clean.as_str())
-        })
-        .map(|token| {
-            let clean_word = token
-                .to_lowercase()
-                .trim_matches(|c: char| !c.is_alphabetic())
-                .to_string();
+    // Optimization: Pre-allocate string capacity to avoid resizing
+    let mut result = String::with_capacity(title.len());
+    let mut first = true;
 
-            if let Some(abbr) = word_map.get(&clean_word) {
-                abbr.clone()
-            } else {
-                token.to_string()
-            }
-        })
-        .collect::<Vec<String>>()
-        .join(" ")
+    for token in title_clean.split_whitespace() {
+        // 1. Clean the word
+        // "Materials," -> "materials"
+        let clean_word = token
+            .to_lowercase()
+            .trim_matches(|c: char| !c.is_alphabetic())
+            .to_string();
+
+        // 2. Skip stopwords
+        if stops.contains(clean_word.as_str()) {
+            continue;
+        }
+
+        if !first {
+            result.push(' ');
+        }
+
+        // 3. Lookup or Keep Original
+        if let Some(abbr) = word_map.get(&clean_word) {
+            result.push_str(abbr);
+        } else {
+            result.push_str(token);
+        }
+
+        first = false;
+    }
+
+    result
 }
 
+/// Reverse Lookup: "Phys. Rev. B" -> "Physical Review B"
+/// Handles "phys rev b" (no dots) via normalize_key
 pub fn unabbreviate_journal(abbr: &str) -> Option<String> {
     let map = get_reverse_map();
-    map.get(&abbr.to_lowercase()).cloned()
+
+    // 1. Try exact match first (faster)
+    if let Some(full) = map.get(&abbr.to_lowercase()) {
+        return Some(full.clone());
+    }
+
+    // 2. Try normalized match (handles missing punctuation)
+    // "phys rev b" -> "physrevb" -> match
+    if let Some(full) = map.get(&normalize_key(abbr)) {
+        return Some(full.clone());
+    }
+
+    None
 }

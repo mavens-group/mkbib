@@ -5,9 +5,9 @@ use crate::app::alert::AlertMsg;
 use crate::app::{AppModel, AppMsg};
 use crate::core;
 use crate::logic::abbreviator;
-use crate::logic::deduplicator;
+// use crate::logic::deduplicator;
 use crate::ui::details_dialog::DetailsDialogMsg;
-use crate::ui::duplicate_dialog::DuplicateDialogMsg;
+// use crate::ui::duplicate_dialog::DuplicateDialogMsg;
 use crate::ui::row::{BibEntry, BibEntryOutput};
 use crate::ui::sidebar::SidebarMsg;
 use biblatex::{Bibliography, Chunk, Spanned};
@@ -117,34 +117,35 @@ pub fn handle_row_output(model: &mut AppModel, output: BibEntryOutput) {
     }
 }
 
-pub fn scan_duplicates(model: &mut AppModel) {
-    model
-        .sidebar
-        .emit(SidebarMsg::SetStatus("Scanning for duplicates...".into()));
+// pub fn scan_duplicates(model: &mut AppModel) {
+// model
+// .sidebar
+// .emit(SidebarMsg::SetStatus("Scanning for duplicates...".into()));
 
-    // 1. Delegate math to deduplicator (Returns structured DuplicateGroup objects)
-    let duplicates = deduplicator::find_duplicates(&model.bibliography);
+// // 1. Delegate math to deduplicator (Returns structured DuplicateGroup objects)
+// let duplicates = deduplicator::find_duplicates(&model.bibliography);
 
-    // 2. UI Feedback
-    if duplicates.is_empty() {
-        model
-            .sidebar
-            .emit(SidebarMsg::SetStatus("Library clean.".to_string()));
-        model.alert.emit(AlertMsg::ShowInfo(
-            "Great news!\n\nNo duplicate entries found.".into(),
-        ));
-    } else {
-        model.sidebar.emit(SidebarMsg::SetStatus(format!(
-            "Reviewing {} duplicate groups...",
-            duplicates.len()
-        )));
+// // 2. UI Feedback
+// if duplicates.is_empty() {
+// model
+// .sidebar
+// .emit(SidebarMsg::SetStatus("Library clean.".to_string()));
+// model.alert.emit(AlertMsg::ShowInfo(
+// "Great news!\n\nNo duplicate entries found.".into(),
+// ));
+// } else {
+// model.sidebar.emit(SidebarMsg::SetStatus(format!(
+// "Reviewing {} duplicate groups...",
+// duplicates.len()
+// )));
 
-        // 3. DIAMOND LOGIC: Open the interactive dialog instead of a text alert
-        model
-            .duplicate_dialog
-            .emit(DuplicateDialogMsg::LoadGroups(duplicates));
-    }
-}
+// // 3. DIAMOND LOGIC: Open the interactive dialog instead of a text alert
+// model
+// .duplicate_dialog
+// .emit(DuplicateDialogMsg::LoadGroups(duplicates));
+// }
+// }
+
 pub fn regenerate_keys(model: &mut AppModel, sender: ComponentSender<AppModel>) {
     let old_entries: Vec<_> = model.bibliography.iter().map(|e| e.clone()).collect();
     model.bibliography = Bibliography::new();
