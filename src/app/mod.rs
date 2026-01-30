@@ -18,7 +18,7 @@ pub use model::{AppModel, AppMsg};
 use self::alert::AlertModel;
 use crate::core;
 use crate::menu;
-use crate::ui;
+// use crate::ui;
 use crate::ui::details_dialog::{DetailsDialogModel, DetailsDialogOutput};
 use crate::ui::duplicate_dialog::{DuplicateDialogModel, DuplicateDialogOutput}; // <--- FIX 1: ADD IMPORT
 use crate::ui::preferences::{PreferencesModel, PreferencesOutput};
@@ -34,43 +34,64 @@ impl Component for AppModel {
     type CommandOutput = ();
 
     view! {
-        gtk::ApplicationWindow {
-            set_title: Some("MkBib"),
-            set_icon_name: Some("mkbib"),
-            set_default_width: 1100,
-            set_default_height: 750,
-
-            gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
-                set_spacing: 0,
-
-                #[local_ref]
-                menu_bar -> gtk::PopoverMenuBar {},
+            gtk::ApplicationWindow {
+                set_title: Some("MkBib"),
+                set_icon_name: Some("mkbib"),
+                set_default_width: 1100,
+                set_default_height: 750,
 
                 gtk::Box {
-                    set_orientation: gtk::Orientation::Horizontal,
-                    set_vexpand: true,
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 0,
 
                     #[local_ref]
-                    sidebar_widget -> gtk::Box {},
+                    menu_bar -> gtk::PopoverMenuBar {},
 
-                    gtk::Separator { set_orientation: gtk::Orientation::Vertical },
-
-                    gtk::ScrolledWindow {
-                        set_hexpand: true,
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Horizontal,
                         set_vexpand: true,
 
                         #[local_ref]
-                        entries_list_box -> gtk::ListBox {
-                            set_selection_mode: gtk::SelectionMode::None,
-                            set_activate_on_single_click: true,
-                            add_css_class: "boxed-list",
-                            set_margin_all: 12,
+                        sidebar_widget -> gtk::Box {},
+
+                        gtk::Separator { set_orientation: gtk::Orientation::Vertical },
+
+                        gtk::ScrolledWindow {
+                            set_hexpand: true,
+                            set_vexpand: true,
+
+                            #[local_ref]
+                            entries_list_box -> gtk::ListBox {
+                                set_selection_mode: gtk::SelectionMode::None,
+                                set_activate_on_single_click: true,
+                                add_css_class: "boxed-list",
+                                set_margin_all: 12,
+                            }
                         }
                     }
-                }
-            }
-        }
+                },
+                // KEYBOARD CONTROLLER for undo/redo
+                add_controller = gtk::EventControllerKey {
+                  connect_key_pressed[sender] => move |_controller, keyval, _keycode, state| {
+                    let is_ctrl = state.contains(gtk::gdk::ModifierType::CONTROL_MASK);
+                    let is_shift = state.contains(gtk::gdk::ModifierType::SHIFT_MASK);
+
+                    // Ctrl + Z -> UNDO
+                    if is_ctrl && keyval == gtk::gdk::Key::z && !is_shift {
+                      sender.input(AppMsg::Undo);
+                      return gtk::glib::Propagation::Stop;
+                    }
+
+                    // Ctrl + Shift + Z  OR  Ctrl + Y -> REDO
+                    if (is_ctrl && is_shift && keyval == gtk::gdk::Key::z) ||
+                      (is_ctrl && keyval == gtk::gdk::Key::y) {
+                        sender.input(AppMsg::Redo);
+                        return gtk::glib::Propagation::Stop;
+                    }
+
+                    gtk::glib::Propagation::Proceed
+                  }
+                }        }
     }
 
     fn init(
@@ -208,8 +229,11 @@ impl Component for AppModel {
             alert,
             details_dialog,
             search_dialog,
-            duplicate_dialog, // Add field
-            key_config,       // Add field
+            duplicate_dialog,
+            key_config,
+            is_dirty: false,
+            undo_stack: std::collections::VecDeque::new(),
+            redo_stack: std::collections::VecDeque::new(),
         };
 
         let entries_list_box = model.entries.widget();

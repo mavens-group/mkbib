@@ -1,4 +1,6 @@
 // src/logic/abbreviator.rs
+
+use crate::core;
 use directories::ProjectDirs;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -6,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 // 1. Embedded Defaults (Fallback)
-const DEFAULT_JOURNALS_JSON: &str = include_str!("../../journals.json"); // Ensure path is correct
+const DEFAULT_JOURNALS_JSON: &str = include_str!("../../journals.json");
 const STARTER_LTWA: &str = "
 Word,Abbreviation
 Journal,J.
@@ -45,15 +47,19 @@ fn get_stopwords() -> &'static HashSet<&'static str> {
     })
 }
 
-// --- Helper: Normalize keys for robust matching ---
-// "Phys. Rev. B" -> "physrevb"
-// This allows "phys rev b" to match "Phys. Rev. B"
-fn normalize_key(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .collect::<String>()
-        .to_lowercase()
+// ✅ NEW HELPER: Convert "physical review b" -> "Physical Review B"
+fn to_title_case(s: &str) -> String {
+    s.split_whitespace()
+        .map(|word| {
+            let mut c = word.chars();
+            match c.next() {
+                None => String::new(),
+                // Capitalize first letter, keep the rest as is
+                Some(f) => f.to_uppercase().collect::<String>() + &word[1..],
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 // --- Tier 1: Exact Match Dictionary ---
@@ -64,22 +70,18 @@ fn get_exact_map() -> &'static HashMap<String, String> {
 
         // 1. Try Loading from Disk
         if let Some(dir) = get_data_dir() {
-            // Ensure directory exists
             if !dir.exists() {
                 let _ = fs::create_dir_all(&dir);
             }
 
             let json_path = dir.join("journals.json");
 
-            // If missing, write default so user can edit it
             if !json_path.exists() {
                 let _ = fs::write(&json_path, DEFAULT_JOURNALS_JSON);
             }
 
-            // Read
             if let Ok(content) = fs::read_to_string(&json_path) {
                 if let Ok(parsed) = serde_json::from_str::<HashMap<String, String>>(&content) {
-                    // Insert normalized keys (lowercase)
                     for (k, v) in parsed {
                         m.insert(k.to_lowercase(), v);
                     }
@@ -119,7 +121,7 @@ fn get_ltwa() -> &'static HashMap<String, String> {
             }
         }
 
-        // 2. Load External "ltwa.csv" from Config Dir (User Overrides)
+        // 2. Load External "ltwa.csv" (User Overrides)
         if let Some(dir) = get_data_dir() {
             let csv_path = dir.join("ltwa.csv");
             if csv_path.exists() {
@@ -147,12 +149,11 @@ fn get_reverse_map() -> &'static HashMap<String, String> {
         let mut m = HashMap::new();
 
         for (full_title, abbr) in forward {
-            // STRICT MAPPING: "phys. rev. b" -> "Physical Review B"
+            // STRICT MAPPING
             m.insert(abbr.to_lowercase(), full_title.clone());
 
-            // FUZZY MAPPING: "physrevb" -> "Physical Review B"
-            // This handles cases where user types "phys rev b" (no dots)
-            m.insert(normalize_key(abbr), full_title.clone());
+            // FUZZY MAPPING (via core::normalize)
+            m.insert(core::normalize(abbr), full_title.clone());
         }
         m
     })
@@ -166,29 +167,24 @@ pub fn abbreviate_journal(title: &str) -> String {
         return String::new();
     }
 
-    // Tier 1: Exact Match (Fast)
+    // Tier 1: Exact Match
     let exact_map = get_exact_map();
     if let Some(abbr) = exact_map.get(&title_clean.to_lowercase()) {
         return abbr.clone();
     }
 
-    // Tier 2: Word-by-Word Abbreviation (ISO 4 style)
+    // Tier 2: Word-by-Word Abbreviation
     let word_map = get_ltwa();
     let stops = get_stopwords();
-
-    // Optimization: Pre-allocate string capacity to avoid resizing
     let mut result = String::with_capacity(title.len());
     let mut first = true;
 
     for token in title_clean.split_whitespace() {
-        // 1. Clean the word
-        // "Materials," -> "materials"
         let clean_word = token
             .to_lowercase()
             .trim_matches(|c: char| !c.is_alphabetic())
             .to_string();
 
-        // 2. Skip stopwords
         if stops.contains(clean_word.as_str()) {
             continue;
         }
@@ -197,7 +193,6 @@ pub fn abbreviate_journal(title: &str) -> String {
             result.push(' ');
         }
 
-        // 3. Lookup or Keep Original
         if let Some(abbr) = word_map.get(&clean_word) {
             result.push_str(abbr);
         } else {
@@ -215,15 +210,14 @@ pub fn abbreviate_journal(title: &str) -> String {
 pub fn unabbreviate_journal(abbr: &str) -> Option<String> {
     let map = get_reverse_map();
 
-    // 1. Try exact match first (faster)
+    // 1. Try exact match first
     if let Some(full) = map.get(&abbr.to_lowercase()) {
-        return Some(full.clone());
+        return Some(to_title_case(full)); // ✅ Fix: Force Title Case
     }
 
-    // 2. Try normalized match (handles missing punctuation)
-    // "phys rev b" -> "physrevb" -> match
-    if let Some(full) = map.get(&normalize_key(abbr)) {
-        return Some(full.clone());
+    // 2. Try normalized match
+    if let Some(full) = map.get(&core::normalize(abbr)) {
+        return Some(to_title_case(full)); // ✅ Fix: Force Title Case
     }
 
     None

@@ -45,6 +45,7 @@ fn make_normal_chunk(text: &str) -> Vec<Spanned<Chunk>> {
 }
 
 pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
+    model.push_snapshot();
     if model.key_config.abbreviate_journals {
         if let Some(chunk_val) = entry.fields.get("journal") {
             let original = core::bib_to_string(chunk_val);

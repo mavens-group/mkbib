@@ -16,6 +16,7 @@ use crate::ui::preferences::PreferencesModel;
 use crate::ui::row::BibEntryOutput;
 use crate::ui::search_dialog::SearchDialogModel;
 use crate::ui::sidebar::SidebarModel;
+use std::collections::VecDeque;
 
 // --- State ---
 pub struct AppModel {
@@ -34,6 +35,9 @@ pub struct AppModel {
     pub duplicate_dialog: Controller<DuplicateDialogModel>,
 
     pub key_config: KeyGenConfig,
+    pub is_dirty: bool,
+    pub undo_stack: VecDeque<Bibliography>,
+    pub redo_stack: VecDeque<Bibliography>,
 }
 
 // --- Messages ---
@@ -51,6 +55,8 @@ pub enum AppMsg {
     ShowPreferences,
     AbbreviateAllJournals,
     UnabbreviateAllJournals,
+    Undo,
+    Redo,
 
     FetchSuccess(Bibliography),
     FetchError(String),
@@ -71,4 +77,19 @@ pub enum AppMsg {
         >,
     ),
     SaveResponse(relm4_components::save_dialog::SaveDialogResponse),
+}
+
+impl AppModel {
+    pub fn push_snapshot(&mut self) {
+        // 1. Clear Redo stack (Standard logic: new action kills the future)
+        self.redo_stack.clear();
+
+        // 2. Limit Undo stack to 50 steps
+        if self.undo_stack.len() >= 50 {
+            self.undo_stack.pop_front();
+        }
+
+        // 3. Save current state
+        self.undo_stack.push_back(self.bibliography.clone());
+    }
 }

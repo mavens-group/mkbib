@@ -105,5 +105,11 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
                 .sidebar
                 .emit(SidebarMsg::SetStatus("Preferences saved.".into()));
         }
+        AppMsg::Undo => {
+            crate::logic::undo::perform_undo(model);
+        }
+        AppMsg::Redo => {
+            crate::logic::undo::perform_redo(model);
+        }
     }
 }
