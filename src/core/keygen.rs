@@ -28,9 +28,44 @@ impl KeyPart {
 pub struct KeyGenConfig {
     pub parts: Vec<KeyPart>,
     pub separator: String,
-    // NEW: Feature flag for journal abbreviations
+
+    // Feature flag for journal abbreviations
     #[serde(default)]
     pub abbreviate_journals: bool,
+
+    // ✅ NEW: Formatting - Indentation Character
+    #[serde(default = "default_indent")]
+    pub indent_char: char,
+
+    // ✅ NEW: Formatting - Indentation Width
+    #[serde(default = "default_indent_width")]
+    pub indent_width: u8,
+
+    // ✅ NEW: Formatting - Field Order
+    #[serde(default = "default_field_order")]
+    pub field_order: Vec<String>,
+}
+
+// --- Defaults for Serde ---
+fn default_indent() -> char {
+    ' '
+}
+fn default_indent_width() -> u8 {
+    4
+}
+fn default_field_order() -> Vec<String> {
+    vec![
+        "author".into(),
+        "title".into(),
+        "year".into(),
+        "date".into(),
+        "journaltitle".into(),
+        "volume".into(),
+        "number".into(),
+        "pages".into(),
+        "doi".into(),
+        "url".into(),
+    ]
 }
 
 impl Default for KeyGenConfig {
@@ -42,7 +77,11 @@ impl Default for KeyGenConfig {
                 KeyPart::TitleFirstWord,
             ],
             separator: String::new(),
-            abbreviate_journals: false, // Default to disabled
+            abbreviate_journals: false,
+            // ✅ Initialize new defaults
+            indent_char: default_indent(),
+            indent_width: default_indent_width(),
+            field_order: default_field_order(),
         }
     }
 }

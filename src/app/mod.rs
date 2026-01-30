@@ -221,6 +221,7 @@ impl Component for AppModel {
         let model = AppModel {
             bibliography: Bibliography::new(),
             entries,
+            original_file_content: None,
             current_file_path: None,
             sidebar,
             open_dialog,

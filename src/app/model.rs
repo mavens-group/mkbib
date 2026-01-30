@@ -23,6 +23,7 @@ pub struct AppModel {
     pub bibliography: Bibliography,
     pub entries: FactoryVecDeque<ui::row::BibEntry>,
     pub current_file_path: Option<PathBuf>,
+    pub original_file_content: Option<String>,
 
     // Child Components (Sidebar now handles inputs & status)
     pub sidebar: Controller<SidebarModel>,
