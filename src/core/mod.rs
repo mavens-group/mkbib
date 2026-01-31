@@ -3,8 +3,8 @@ pub mod config;
 pub mod keygen;
 
 use biblatex::{Chunk, Spanned};
-use std::fs;
-use std::path::{Path, PathBuf};
+// use std::fs;
+use std::path::Path;
 
 /// Helper to safely get string from a list of chunks
 pub fn bib_to_string(val: &[Spanned<Chunk>]) -> String {
@@ -25,17 +25,34 @@ pub fn normalize(s: &str) -> String {
         .to_lowercase()
 }
 
-pub fn create_backup(file_path: &Path) -> std::io::Result<PathBuf> {
-    let mut backup_path = file_path.to_path_buf();
+// pub fn create_backup(file_path: &Path) -> std::io::Result<PathBuf> {
+// let mut backup_path = file_path.to_path_buf();
 
-    if let Some(extension) = backup_path.extension() {
-        let mut ext_str = extension.to_os_string();
-        ext_str.push(".bak");
-        backup_path.set_extension(ext_str);
-    } else {
-        backup_path.set_extension("bak");
+// if let Some(extension) = backup_path.extension() {
+// let mut ext_str = extension.to_os_string();
+// ext_str.push(".bak");
+// backup_path.set_extension(ext_str);
+// } else {
+// backup_path.set_extension("bak");
+// }
+
+// fs::copy(file_path, &backup_path)?;
+// Ok(backup_path)
+// }
+//
+pub fn create_backup(path: &Path) -> std::io::Result<()> {
+    if path.exists() {
+        let mut backup_path = path.to_path_buf();
+        if let Some(stem) = path.file_stem() {
+            let mut new_name = stem.to_os_string();
+            new_name.push(".bib.bak"); // Creates trial.bib.bak
+            backup_path.set_file_name(new_name);
+        } else {
+            // Fallback
+            backup_path.set_extension("bak");
+        }
+
+        std::fs::copy(path, backup_path)?;
     }
-
-    fs::copy(file_path, &backup_path)?;
-    Ok(backup_path)
+    Ok(())
 }

@@ -1,5 +1,5 @@
 // src/logic/library.rs
-#![allow(unused_assignments)]
+// #![allow(unused_assignments)]
 
 use crate::app::alert::AlertMsg;
 use crate::app::{AppModel, AppMsg};
@@ -48,6 +48,74 @@ fn make_normal_chunk(s: &str) -> Vec<Spanned<Chunk>> {
     }]
 }
 
+// ✅ FIXED HELPER: Smartly handles spacing based on tag type
+fn strip_tags(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut inside_tag = false;
+    let mut current_tag_name = String::new();
+
+    for c in input.chars() {
+        if c == '<' {
+            inside_tag = true;
+            current_tag_name.clear();
+        } else if c == '>' {
+            inside_tag = false;
+
+            // Analyze the tag we just finished
+            let lower_tag = current_tag_name.to_lowercase();
+
+            // HEURISTIC: Only add spaces for "block" or "math container" tags.
+            // "math" covers <math>, <mml:math>, </math> etc.
+            // "br", "p", "div" are standard separators.
+            if lower_tag.contains("math")
+                || lower_tag == "br"
+                || lower_tag == "p"
+                || lower_tag == "div"
+            {
+                output.push(' ');
+            }
+            // Inline tags (mi, mn, mo, b, i, sup, sub) are stripped silently (no space added).
+        } else if inside_tag {
+            // Record tag name (stop at space to ignore attributes like display="inline")
+            if !c.is_whitespace() {
+                current_tag_name.push(c);
+            }
+        } else {
+            output.push(c);
+        }
+    }
+
+    // Decode entities
+    let decoded = output
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ");
+
+    // ✅ SQUASH: Clean up any double spaces created by the logic above
+    decoded.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+// ✅ NEW HELPER: Cleans specific fields in an entry
+fn sanitize_entry_fields(entry: &mut biblatex::Entry) {
+    let fields_to_clean = ["title", "abstract", "journal", "journaltitle"];
+
+    for field in fields_to_clean {
+        if let Some(chunks) = entry.fields.get(field) {
+            let raw_text = core::bib_to_string(chunks);
+            // Check if it looks like it has tags
+            if raw_text.contains('<') && raw_text.contains('>') {
+                let clean_text = strip_tags(&raw_text);
+                entry
+                    .fields
+                    .insert(field.into(), make_normal_chunk(&clean_text));
+            }
+        }
+    }
+}
+
 // Helper to refresh UI without repeating code
 fn refresh_ui_list(model: &mut AppModel) {
     model.entries.guard().clear();
@@ -64,7 +132,10 @@ pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
     // 1. SAVE STATE
     model.push_snapshot();
 
-    // 2. Logic: Abbreviate on add if configured
+    // 2. Logic: Sanitize Input (Fixes MathML titles)
+    sanitize_entry_fields(&mut entry);
+
+    // 3. Logic: Abbreviate on add if configured
     if model.key_config.abbreviate_journals {
         if let Some(chunk_val) = entry.fields.get("journal") {
             let original = core::bib_to_string(chunk_val);
@@ -87,19 +158,19 @@ pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
         }
     }
 
-    // 3. Generate Key
+    // 4. Generate Key
     if entry.key.is_empty() {
         entry.key = core::keygen::generate_key(&entry, &model.key_config);
     }
 
-    // 4. Ensure Uniqueness
+    // 5. Ensure Uniqueness
     let unique_key = ensure_unique(&entry.key, &model.bibliography);
     entry.key = unique_key.clone();
 
-    // 5. Insert
+    // 6. Insert
     model.bibliography.insert(entry.clone());
 
-    // 6. Update UI
+    // 7. Update UI
     model
         .entries
         .guard()
@@ -161,9 +232,11 @@ pub fn finish_edit(
 
     match parsed {
         Ok(bib) => {
-            if let Some(new_entry) = bib.iter().next() {
+            if let Some(mut new_entry) = bib.iter().next() {
                 // ✅ FIX: Take a Snapshot BEFORE applying changes
                 model.push_snapshot();
+
+                // Note: We do NOT sanitize here because this is a Manual Edit.
 
                 // 2. Remove old entry
                 model.bibliography.remove(&old_key);
@@ -245,7 +318,6 @@ pub fn abbreviate_all_entries(model: &mut AppModel) {
                     if let Some(chunk_val) = fields.get(field_name) {
                         let current_text = core::bib_to_string(chunk_val);
 
-                        // ✅ FIX: abbreviate_journal returns String, not Option
                         let abbrev = abbreviator::abbreviate_journal(&current_text);
                         if !abbrev.is_empty() && abbrev != current_text {
                             fields.insert(field_name.into(), make_normal_chunk(&abbrev));
@@ -297,7 +369,6 @@ pub fn unabbreviate_all_entries(model: &mut AppModel) {
                 |field_name: &str, fields: &mut BTreeMap<String, Vec<Spanned<Chunk>>>| -> bool {
                     if let Some(chunk_val) = fields.get(field_name) {
                         let current_text = core::bib_to_string(chunk_val);
-                        // This returns Option, so 'if let Some' is correct here
                         if let Some(full) = abbreviator::unabbreviate_journal(&current_text) {
                             if full != current_text {
                                 fields.insert(field_name.into(), make_normal_chunk(&full));

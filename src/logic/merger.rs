@@ -36,14 +36,19 @@ pub fn merge_bibliography_into_source(
 
     for span in sorted_spans {
         // Write text BEFORE the entry (preserves existing newlines exactly)
+        // This text often contains the "\n" or "\n\n" from the previous save.
         output.push_str(&original[last_pos..span.start]);
 
         let key_lower = span.key.to_lowercase();
 
         if let Some(entry) = bib_lookup.get(&key_lower) {
-            // Write formatted entry (Tight, no extra newlines)
+            // Write formatted entry
             let serialized = crate::logic::formatter::format_entry(entry, config);
-            output.push_str(&serialized);
+
+            // ✅ FIX: .trim() removes any trailing newline coming from the formatter.
+            // We rely on the "text BEFORE the entry" (pushed above) to provide the separation.
+            output.push_str(serialized.trim());
+
             processed_keys.insert(key_lower);
         } else {
             // Entry Deleted: we skip writing the original span (deleting it)
@@ -56,7 +61,6 @@ pub fn merge_bibliography_into_source(
     output.push_str(&original[last_pos..]);
 
     // Append NEW entries (e.g. created via UI)
-    // ✅ STRICT FIX: No extra newlines before/after
     for entry in bib.iter() {
         if !processed_keys.contains(&entry.key.to_lowercase()) {
             let serialized = crate::logic::formatter::format_entry(entry, config);
@@ -65,7 +69,9 @@ pub fn merge_bibliography_into_source(
             if !output.ends_with('\n') {
                 output.push('\n');
             }
-            output.push_str(&serialized);
+
+            // ✅ FIX: .trim() here too, just to be safe.
+            output.push_str(serialized.trim());
             // We do NOT add a trailing newline here, to satisfy your request.
         }
     }
@@ -76,7 +82,8 @@ pub fn merge_bibliography_into_source(
 fn generate_clean_bibliography(bib: &Bibliography, config: &KeyGenConfig) -> String {
     let mut out = String::new();
     for entry in bib.iter() {
-        out.push_str(&crate::logic::formatter::format_entry(entry, config));
+        // ✅ FIX: Trim here too so we control the spacing explicitly
+        out.push_str(crate::logic::formatter::format_entry(entry, config).trim());
         // Minimal separation for clean file generation
         out.push('\n');
     }
