@@ -23,6 +23,13 @@ pub fn init(root: &gtk::ApplicationWindow, sender: ComponentSender<AppModel>) {
     }));
     group.add_action(&action_regen);
 
+    // Action: reformat_all
+    let action_reformat = gio::SimpleAction::new("reformat_all", None);
+    action_reformat.connect_activate(clone!(@strong sender => move |_, _| {
+        sender.input(AppMsg::ReformatAll);
+    }));
+    group.add_action(&action_reformat);
+
     // --- Action: scan_duplicates ---
     let action_scan = gio::SimpleAction::new("scan_duplicates", None);
     action_scan.connect_activate(clone!(@strong sender => move |_, _| {

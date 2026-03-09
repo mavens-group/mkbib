@@ -1,5 +1,3 @@
-// src/ui/row.rs
-
 use crate::core;
 use gtk4::prelude::*;
 use relm4::prelude::*; // Add this if not present

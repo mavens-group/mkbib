@@ -140,6 +140,18 @@ impl Component for DuplicateDialogModel {
                                     set_css_classes: &["monospaced"],
                                     set_halign: gtk::Align::Start,
                                 },
+
+                                // Journal
+                                gtk::Label {
+                                    #[watch] set_label: &model.original_info().journal,
+                                    set_css_classes: &["caption"],
+                                    set_halign: gtk::Align::Start,
+                                    set_xalign: 0.0,
+                                    set_wrap: true,
+                                    set_hexpand: true,
+                                    set_width_chars: 1,
+                                    set_max_width_chars: 1,
+                                },
                             }
                         },
 
@@ -232,6 +244,18 @@ impl Component for DuplicateDialogModel {
                                     #[watch] set_label: &model.candidate_info().year,
                                     set_css_classes: &["monospaced"],
                                     set_halign: gtk::Align::Start,
+                                },
+
+                                // Journal
+                                gtk::Label {
+                                    #[watch] set_label: &model.candidate_info().journal,
+                                    set_css_classes: &["caption"],
+                                    set_halign: gtk::Align::Start,
+                                    set_xalign: 0.0,
+                                    set_wrap: true,
+                                    set_hexpand: true,
+                                    set_width_chars: 1,
+                                    set_max_width_chars: 1,
                                 },
                             }
                         },
@@ -376,5 +400,6 @@ fn empty_info() -> EntryInfo {
         title: "---".into(),
         author: "---".into(),
         year: "---".into(),
+        journal: "---".into(),
     }
 }

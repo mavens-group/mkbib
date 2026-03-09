@@ -1,6 +1,6 @@
 // src/ui/preferences.rs
 
-use crate::core::keygen::{ChemFormulaStyle, KeyGenConfig, KeyPart};
+use crate::core::keygen::{ChemFormulaStyle, KeyGenConfig, KeyPart, UnicodeMode};
 use gtk4::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -155,6 +155,7 @@ pub enum PreferencesMsg {
     SetIndentChar(char),
     SetIndentWidth(f64),
     SetChemFormulaStyle(u32),
+    SetUnicodeMode(u32),
     MoveField(usize, FieldRowMsg),
 }
 
@@ -349,6 +350,47 @@ impl SimpleComponent for PreferencesModel {
                         gtk::Separator { set_margin_top: 10, set_margin_bottom: 10 },
 
                         gtk::Label {
+                            set_label: "Unicode Handling",
+                            set_css_classes: &["title-4"],
+                            set_halign: gtk::Align::Start,
+                        },
+                        gtk::Label {
+                            set_label: "How accented characters (ü, é, ñ) are written in the .bib file.",
+                            set_css_classes: &["caption"],
+                            set_halign: gtk::Align::Start,
+                        },
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 12,
+
+                            gtk::Label {
+                                set_label: "Encoding:",
+                                set_hexpand: true,
+                                set_halign: gtk::Align::Start,
+                            },
+
+                            gtk::DropDown {
+                                set_model: Some(&gtk::StringList::new(&[
+                                    "UTF-8 (biber/modern)",
+                                    "LaTeX macros (pdflatex/legacy)",
+                                ])),
+
+                                #[watch]
+                                set_selected: match model.config.unicode_mode {
+                                    UnicodeMode::Utf8 => 0,
+                                    UnicodeMode::Latex => 1,
+                                },
+
+                                connect_selected_notify[sender] => move |dd| {
+                                    sender.input(PreferencesMsg::SetUnicodeMode(dd.selected()));
+                                }
+                            },
+                        },
+
+                        gtk::Separator { set_margin_top: 10, set_margin_bottom: 10 },
+
+                        gtk::Label {
                             set_label: "Chemical Formulas",
                             set_css_classes: &["title-4"],
                             set_halign: gtk::Align::Start,
@@ -528,6 +570,12 @@ impl SimpleComponent for PreferencesModel {
                     1 => ChemFormulaStyle::Math,
                     2 => ChemFormulaStyle::Mhchem,
                     _ => ChemFormulaStyle::None,
+                };
+            }
+            PreferencesMsg::SetUnicodeMode(idx) => {
+                self.config.unicode_mode = match idx {
+                    1 => UnicodeMode::Latex,
+                    _ => UnicodeMode::Utf8,
                 };
             }
 

@@ -1,3 +1,4 @@
+// relm4's view! macro generates unused_assignments for #[local_ref] and #[name] bindings
 #![allow(unused_assignments)]
 
 use biblatex::Bibliography;
@@ -125,6 +126,7 @@ impl Component for AppModel {
         let edit_menu = gio::Menu::new();
         edit_menu.append(Some("Preferences"), Some("edit.preferences"));
         edit_menu.append(Some("Regenerate Keys"), Some("edit.regenerate_keys"));
+        edit_menu.append(Some("Reformat All Entries"), Some("edit.reformat_all"));
         edit_menu.append(Some("Scan for Duplicates"), Some("edit.scan_duplicates"));
         edit_menu.append(
             Some("Abbreviate Journal Titles"),

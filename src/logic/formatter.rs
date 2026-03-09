@@ -1,12 +1,16 @@
 // src/logic/formatter.rs
+//
+// Clean formatter: always produces correct BibTeX/BibLaTeX output from parsed
+// chunk data. No span-based source recovery — the merger handles inter-entry
+// preservation (comments, @string, whitespace), and entries are always
+// reformatted through this module.
 
-use crate::core::keygen::KeyGenConfig;
+use crate::core::keygen::{KeyGenConfig, UnicodeMode};
 use biblatex::Entry;
 use std::fmt::Write;
 
-/// Formats an entry.
-/// If `original_source` is provided, unedited fields are copied byte-for-byte.
-pub fn format_entry(entry: &Entry, config: &KeyGenConfig, original_source: Option<&str>) -> String {
+/// Formats a single bibliography entry as a BibTeX string.
+pub fn format_entry(entry: &Entry, config: &KeyGenConfig) -> String {
     let mut out = String::new();
 
     // 1. Indentation
@@ -16,119 +20,78 @@ pub fn format_entry(entry: &Entry, config: &KeyGenConfig, original_source: Optio
         " ".repeat(config.indent_width as usize)
     };
 
-    // 2. Header
+    // 2. Header: @type{key,
     let _ = writeln!(out, "@{}{{{},", entry.entry_type.to_bibtex(), entry.key);
 
-    // 3. Fields
+    // 3. Fields — priority order first, then remaining sorted alphabetically
     let mut written_fields = std::collections::HashSet::new();
 
-    // Priority Fields
-    for key in &config.field_order {
-        if let Some(chunks) = entry.fields.get(key) {
-            write_field(&mut out, key, chunks, &indent, original_source);
-            written_fields.insert(key.clone());
+    for field_name in &config.field_order {
+        if let Some(chunks) = entry.fields.get(field_name) {
+            write_field(&mut out, field_name, chunks, &indent, &config.unicode_mode);
+            written_fields.insert(field_name.clone());
         }
     }
 
-    // Remaining Fields
     let mut remaining_keys: Vec<_> = entry.fields.keys().collect();
     remaining_keys.sort();
 
-    for key in remaining_keys {
-        if !written_fields.contains(key) {
-            let chunks = entry.fields.get(key).unwrap();
-            write_field(&mut out, key, chunks, &indent, original_source);
+    for field_name in remaining_keys {
+        if !written_fields.contains(field_name) {
+            let chunks = entry.fields.get(field_name).unwrap();
+            write_field(&mut out, field_name, chunks, &indent, &config.unicode_mode);
         }
     }
 
     // 4. Footer
     out.push('}');
 
-    // STRICT TRIM: Removes the trailing newline from the last field
-    out.trim().to_string()
+    // Trim trailing whitespace from the last field line
+    out.trim_end().to_string()
 }
 
+/// Writes a single field: `    fieldname = {value},\n`
 fn write_field(
     out: &mut String,
     key: &str,
     chunks: &[biblatex::Spanned<biblatex::Chunk>],
     indent: &str,
-    original_source: Option<&str>,
+    unicode_mode: &UnicodeMode,
 ) {
-    let mut s = String::new();
-    let mut appended_from_source = false;
+    let mut value = String::new();
 
-    // HYBRID LOGIC: Recover original source formatting if possible
-    if let Some(src) = original_source {
-        if !chunks.is_empty() {
-            // 1. Find the bounding box of the content
-            let start = chunks[0].span.start;
-            let end = chunks.last().unwrap().span.end;
-
-            // 2. Validate bounds
-            if start < end && end <= src.len() {
-                // 3. Extract the "Core" content (e.g. "Test {DNA")
-                let mut current_end = end;
-
-                // ✅ FIX: Removed 'mut' from slice (warning fixed)
-                let slice = src[start..current_end].to_string();
-
-                // 4. BALANCE BRACES
-                // We count '{' and '}' in the slice. If open > closed, we likely missed
-                // the closing braces that are part of the value.
-                let mut open_count = slice.chars().filter(|c| *c == '{').count();
-                let mut close_count = slice.chars().filter(|c| *c == '}').count();
-
-                // Expand rightwards to capture missing '}'
-                while open_count > close_count && current_end < src.len() {
-                    let next_char = src[current_end..].chars().next().unwrap();
-                    current_end += next_char.len_utf8();
-
-                    if next_char == '}' {
-                        close_count += 1;
-                    } else if next_char == '{' {
-                        open_count += 1;
-                    }
+    for chunk in chunks {
+        match &chunk.v {
+            biblatex::Chunk::Normal(t) => {
+                match unicode_mode {
+                    UnicodeMode::Utf8 => value.push_str(t),
+                    UnicodeMode::Latex => value.push_str(&encode_latex(t)),
                 }
-
-                // Final slice check: If braces match, we use the source.
-                if open_count == close_count {
-                    s.push_str(&src[start..current_end]);
-                    appended_from_source = true;
-                }
+            }
+            biblatex::Chunk::Verbatim(t) => {
+                // Verbatim content (URLs, DOIs) — never encode
+                value.push_str(t);
+            }
+            biblatex::Chunk::Math(t) => {
+                // Math content — wrap in $...$, never encode inside
+                value.push('$');
+                value.push_str(t);
+                value.push('$');
             }
         }
     }
 
-    if !appended_from_source {
-        // Fallback: Use parsed value (User edited this, or new entry)
-        for chunk in chunks {
-            match &chunk.v {
-                biblatex::Chunk::Normal(t) => s.push_str(&encode_latex(t)),
-                biblatex::Chunk::Verbatim(t) => s.push_str(t),
-                biblatex::Chunk::Math(t) => {
-                    // Math chunks must be re-wrapped in $...$ delimiters
-                    s.push('$');
-                    s.push_str(t);
-                    s.push('$');
-                }
-            }
-        }
-    }
-
-    // Force \n explicitly
-    let _ = write!(out, "{}{} = {{{}}},\n", indent, key, s);
+    let _ = write!(out, "{}{} = {{{}}},\n", indent, key, value);
 }
 
-/// Re-encodes Unicode to LaTeX accent macros (used only for NEW or EDITED fields).
+/// Encodes Unicode accented characters to LaTeX accent macros.
 ///
-/// Uses the `\"{a}` form (command outside braces) instead of `{\"a}` (command inside braces).
-/// The `{\"a}` form causes "Paragraph completed before \TU\" errors under fontspec/XeLaTeX/LuaLaTeX
-/// because the accent command expands inside a group where the TU encoding mapping hasn't finished.
-/// The `\"{a}` form is safe across both legacy (OT1/T1) and modern (TU) font encodings.
+/// Uses the `\"{a}` form (command outside braces) which is safe across
+/// both legacy (OT1/T1) and modern (TU/fontspec) font encodings.
+/// The `{\"a}` form causes "Paragraph completed before \TU\" errors.
 ///
-/// Only actual Unicode accented characters are converted — normal ASCII (including apostrophes,
-/// quotes, etc.) passes through unchanged.
+/// Only runs when UnicodeMode::Latex is selected.
+/// Normal ASCII (apostrophes, quotes, hyphens, etc.) passes through unchanged.
 fn encode_latex(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -142,6 +105,8 @@ fn encode_latex(text: &str) -> String {
             'Ü' => out.push_str("\\\"{U}"),
             'ë' => out.push_str("\\\"{e}"),
             'Ë' => out.push_str("\\\"{E}"),
+            'ï' => out.push_str("\\\"{i}"),
+            'Ï' => out.push_str("\\\"{I}"),
             // Acute
             'é' => out.push_str("\\'{e}"),
             'É' => out.push_str("\\'{E}"),
@@ -153,16 +118,26 @@ fn encode_latex(text: &str) -> String {
             'Ó' => out.push_str("\\'{O}"),
             'ú' => out.push_str("\\'{u}"),
             'Ú' => out.push_str("\\'{U}"),
+            'ý' => out.push_str("\\'{y}"),
+            'Ý' => out.push_str("\\'{Y}"),
             // Grave
             'è' => out.push_str("\\`{e}"),
             'È' => out.push_str("\\`{E}"),
             'à' => out.push_str("\\`{a}"),
             'À' => out.push_str("\\`{A}"),
+            'ì' => out.push_str("\\`{i}"),
+            'Ì' => out.push_str("\\`{I}"),
+            'ò' => out.push_str("\\`{o}"),
+            'Ò' => out.push_str("\\`{O}"),
+            'ù' => out.push_str("\\`{u}"),
+            'Ù' => out.push_str("\\`{U}"),
             // Circumflex
             'ê' => out.push_str("\\^{e}"),
             'Ê' => out.push_str("\\^{E}"),
             'â' => out.push_str("\\^{a}"),
             'Â' => out.push_str("\\^{A}"),
+            'î' => out.push_str("\\^{i}"),
+            'Î' => out.push_str("\\^{I}"),
             'ô' => out.push_str("\\^{o}"),
             'Ô' => out.push_str("\\^{O}"),
             'û' => out.push_str("\\^{u}"),
@@ -172,15 +147,31 @@ fn encode_latex(text: &str) -> String {
             'Ñ' => out.push_str("\\~{N}"),
             'ã' => out.push_str("\\~{a}"),
             'Ã' => out.push_str("\\~{A}"),
+            'õ' => out.push_str("\\~{o}"),
+            'Õ' => out.push_str("\\~{O}"),
+            // Caron / háček
+            'č' => out.push_str("\\v{c}"),
+            'Č' => out.push_str("\\v{C}"),
+            'š' => out.push_str("\\v{s}"),
+            'Š' => out.push_str("\\v{S}"),
+            'ž' => out.push_str("\\v{z}"),
+            'Ž' => out.push_str("\\v{Z}"),
+            'ř' => out.push_str("\\v{r}"),
+            'Ř' => out.push_str("\\v{R}"),
             // Special
             'ß' => out.push_str("\\ss{}"),
             'å' => out.push_str("\\aa{}"),
             'Å' => out.push_str("\\AA{}"),
             'ø' => out.push_str("\\o{}"),
             'Ø' => out.push_str("\\O{}"),
+            'æ' => out.push_str("\\ae{}"),
+            'Æ' => out.push_str("\\AE{}"),
             'ç' => out.push_str("\\c{c}"),
             'Ç' => out.push_str("\\c{C}"),
-            // Everything else (including ASCII apostrophes, quotes, etc.) passes through as-is
+            'ł' => out.push_str("\\l{}"),
+            'Ł' => out.push_str("\\L{}"),
+            'đ' => out.push_str("\\dj{}"),
+            // Everything else passes through as-is
             _ => out.push(c),
         }
     }

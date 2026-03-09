@@ -3,7 +3,6 @@ pub mod config;
 pub mod keygen;
 
 use biblatex::{Chunk, Spanned};
-// use std::fs;
 use std::path::Path;
 
 /// Helper to safely get string from a list of chunks
@@ -25,21 +24,6 @@ pub fn normalize(s: &str) -> String {
         .to_lowercase()
 }
 
-// pub fn create_backup(file_path: &Path) -> std::io::Result<PathBuf> {
-// let mut backup_path = file_path.to_path_buf();
-
-// if let Some(extension) = backup_path.extension() {
-// let mut ext_str = extension.to_os_string();
-// ext_str.push(".bak");
-// backup_path.set_extension(ext_str);
-// } else {
-// backup_path.set_extension("bak");
-// }
-
-// fs::copy(file_path, &backup_path)?;
-// Ok(backup_path)
-// }
-//
 pub fn create_backup(path: &Path) -> std::io::Result<()> {
     if path.exists() {
         let mut backup_path = path.to_path_buf();

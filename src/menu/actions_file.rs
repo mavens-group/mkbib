@@ -30,9 +30,8 @@ pub fn init(root: &gtk::ApplicationWindow, sender: ComponentSender<AppModel>) {
 
     // --- QUIT ---
     let action_quit = gio::SimpleAction::new("quit", None);
-    action_quit.connect_activate(move |_, _| {
-        let app = relm4::main_application();
-        app.quit();
-    });
+    action_quit.connect_activate(clone!(@strong sender => move |_, _| {
+        sender.input(AppMsg::TriggerQuit);
+    }));
     root.add_action(&action_quit);
 }

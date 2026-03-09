@@ -1,7 +1,7 @@
 // src/logic/merger.rs
 
 use crate::core::keygen::KeyGenConfig;
-use biblatex::{Bibliography, Chunk, Entry};
+use biblatex::Bibliography;
 use std::collections::{HashMap, HashSet};
 
 struct EntrySpan {
@@ -21,9 +21,6 @@ pub fn merge_bibliography_into_source(
         return generate_clean_bibliography(bib, config);
     }
 
-    let mut sorted_spans = spans.values().collect::<Vec<_>>();
-    sorted_spans.sort_by_key(|s| s.start);
-
     let mut output = String::with_capacity(original.len());
     let mut last_pos = 0;
     let mut processed_keys = HashSet::new();
@@ -33,35 +30,16 @@ pub fn merge_bibliography_into_source(
         bib_lookup.insert(entry.key.to_lowercase(), entry);
     }
 
-    for span in sorted_spans {
-        // 1. GAP: Preserve exact spacing/comments
+    for span in &spans {
+        // 1. GAP: Preserve exact spacing/comments/@string/@preamble blocks
         output.push_str(&original[last_pos..span.start]);
 
         let key_lower = span.key.to_lowercase();
 
         if let Some(curr_entry) = bib_lookup.get(&key_lower) {
-            let original_text_slice = &original[span.start..span.end];
-
-            // Check Preservation: If equivalent, keep the RAW original block
-            let should_preserve = if let Ok(parsed_bib) = Bibliography::parse(original_text_slice) {
-                if let Some(orig_entry) = parsed_bib.iter().next() {
-                    entries_are_equivalent(orig_entry, curr_entry)
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-
-            if should_preserve {
-                output.push_str(original_text_slice);
-            } else {
-                // ⚠️ CHANGED ENTRY: Reformat using HYBRID source
-                // This passes 'original' so the formatter can look up `{DNA}`
-                let serialized =
-                    crate::logic::formatter::format_entry(curr_entry, config, Some(original));
-                output.push_str(serialized.trim());
-            }
+            // Always reformat through the clean formatter
+            let serialized = crate::logic::formatter::format_entry(curr_entry, config);
+            output.push_str(serialized.trim());
 
             processed_keys.insert(key_lower);
         } else {
@@ -76,8 +54,7 @@ pub fn merge_bibliography_into_source(
     // New Entries
     for entry in bib.iter() {
         if !processed_keys.contains(&entry.key.to_lowercase()) {
-            // New entries have no original source, pass None
-            let serialized = crate::logic::formatter::format_entry(entry, config, None);
+            let serialized = crate::logic::formatter::format_entry(entry, config);
 
             if !output.ends_with('\n') {
                 output.push('\n');
@@ -92,53 +69,22 @@ pub fn merge_bibliography_into_source(
 fn generate_clean_bibliography(bib: &Bibliography, config: &KeyGenConfig) -> String {
     let mut out = String::new();
     for entry in bib.iter() {
-        out.push_str(crate::logic::formatter::format_entry(entry, config, None).trim());
+        out.push_str(crate::logic::formatter::format_entry(entry, config).trim());
         out.push('\n');
     }
     out
 }
 
-fn entries_are_equivalent(a: &Entry, b: &Entry) -> bool {
-    if a.entry_type != b.entry_type {
-        return false;
-    }
-    if a.key != b.key {
-        return false;
-    }
-    if a.fields.len() != b.fields.len() {
-        return false;
-    }
-    for (k, v_a) in &a.fields {
-        if let Some(v_b) = b.fields.get(k) {
-            if chunks_to_string(v_a) != chunks_to_string(v_b) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-    true
-}
-
-fn chunks_to_string(chunks: &[biblatex::Spanned<Chunk>]) -> String {
-    let mut s = String::new();
-    for chunk in chunks {
-        match &chunk.v {
-            Chunk::Normal(t) => s.push_str(t),
-            Chunk::Verbatim(t) => s.push_str(t),
-            Chunk::Math(t) => s.push_str(t),
-        }
-    }
-    s
-}
-
-fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
-    let mut spans = HashMap::new();
+/// FIX #3: Returns Vec instead of HashMap so duplicate keys don't collide.
+/// FIX #4: @preamble/@string/@comment bodies are consumed before continue.
+fn scan_entry_spans(text: &str) -> Vec<EntrySpan> {
+    let mut spans = Vec::new();
     let mut chars_iter = text.char_indices().peekable();
+
     while let Some((idx, c)) = chars_iter.next() {
         if c == '@' {
             let start = idx;
-            // 1. Identify Type
+
             let type_start = if let Some((i, _)) = chars_iter.peek() {
                 *i
             } else {
@@ -157,10 +103,38 @@ fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
             };
             let entry_type = &text[type_start..type_end];
 
+            // FIX #4: Consume brace-delimited body of non-entry blocks
             if entry_type.eq_ignore_ascii_case("preamble")
                 || entry_type.eq_ignore_ascii_case("string")
                 || entry_type.eq_ignore_ascii_case("comment")
             {
+                while let Some((_, c)) = chars_iter.peek() {
+                    if !c.is_whitespace() {
+                        break;
+                    }
+                    chars_iter.next();
+                }
+                if let Some((_, c)) = chars_iter.peek() {
+                    let (open, close) = if *c == '{' {
+                        ('{', '}')
+                    } else if *c == '(' {
+                        ('(', ')')
+                    } else {
+                        continue;
+                    };
+                    chars_iter.next();
+                    let mut depth = 1;
+                    while let Some((_, ch)) = chars_iter.next() {
+                        if ch == open {
+                            depth += 1;
+                        } else if ch == close {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -220,17 +194,15 @@ fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
                     }
                 }
                 if depth == 0 && !key.is_empty() {
-                    spans.insert(
-                        key.clone(),
-                        EntrySpan {
-                            key,
-                            start,
-                            end: end_pos,
-                        },
-                    );
+                    spans.push(EntrySpan {
+                        key,
+                        start,
+                        end: end_pos,
+                    });
                 }
             }
         }
     }
+
     spans
 }

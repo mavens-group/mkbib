@@ -1,6 +1,7 @@
 // src/app/update.rs
 
 use biblatex::Bibliography;
+use gtk4::gio::prelude::ApplicationExt;
 use relm4::prelude::*;
 use relm4_components::open_dialog::OpenDialogMsg;
 use relm4_components::save_dialog::SaveDialogMsg;
@@ -22,6 +23,7 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
         AppMsg::ParseManualBib(text) => file_io::parse_manual(model, sender, text),
 
         AppMsg::ClearAll => {
+            model.push_snapshot();
             model.bibliography = Bibliography::new();
             model.entries.guard().clear();
             model
@@ -35,6 +37,19 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
         AppMsg::TriggerSaveAs => model
             .save_dialog
             .emit(SaveDialogMsg::SaveAs("library.bib".into())),
+
+        AppMsg::TriggerQuit => {
+            if model.is_dirty {
+                // Save before quitting if there are unsaved changes
+                file_io::trigger_save(model);
+            }
+            let app = relm4::main_application();
+            app.quit();
+        }
+        AppMsg::ForceQuit => {
+            let app = relm4::main_application();
+            app.quit();
+        }
 
         AppMsg::OpenResponse(resp) => file_io::handle_open_response(model, resp, sender),
         AppMsg::SaveResponse(resp) => file_io::handle_save_response(model, resp),
@@ -76,6 +91,7 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
 
         // NEW: Handle Deletion from the Duplicate Dialog
         AppMsg::DeleteEntry(key) => {
+            model.push_snapshot();
             // 1. Remove from Data
             model.bibliography.remove(&key);
 
@@ -91,6 +107,7 @@ pub fn handle_msg(model: &mut AppModel, msg: AppMsg, sender: ComponentSender<App
         }
 
         AppMsg::RegenerateAllKeys => library::regenerate_keys(model, sender),
+        AppMsg::ReformatAll => library::reformat_all_entries(model),
         AppMsg::AbbreviateAllJournals => library::abbreviate_all_entries(model),
         AppMsg::UnabbreviateAllJournals => library::unabbreviate_all_entries(model),
 

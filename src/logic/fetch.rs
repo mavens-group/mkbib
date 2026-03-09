@@ -25,7 +25,7 @@ pub fn handle_fetch_doi(model: &mut AppModel, sender: ComponentSender<AppModel>,
       Ok(bib) => AppMsg::FetchSuccess(bib),
       Err(e) => AppMsg::FetchError(e.to_string()),
     };
-    input.send(result).expect("Failed to send async result");
+    let _ = input.send(result);
   });
 }
 
@@ -44,8 +44,8 @@ pub fn handle_fetch_search(model: &mut AppModel, sender: ComponentSender<AppMode
   let input = sender.input_sender().clone();
   sender.command(move |_out, _shutdown| async move {
     match api::search_crossref_suggestions(&query).await {
-      Ok(items) => input.send(AppMsg::SearchResultsLoaded(items)).unwrap(),
-      Err(e) => input.send(AppMsg::FetchError(e.to_string())).unwrap(),
+      Ok(items) => { let _ = input.send(AppMsg::SearchResultsLoaded(items)); }
+      Err(e) => { let _ = input.send(AppMsg::FetchError(e.to_string())); }
     }
   });
 }

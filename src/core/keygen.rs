@@ -51,6 +51,21 @@ impl ChemFormulaStyle {
     }
 }
 
+/// Controls how Unicode characters in field values are handled on output.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum UnicodeMode {
+    /// Pass Unicode through as UTF-8. Modern biber handles this natively.
+    Utf8,
+    /// Convert Unicode accents to LaTeX macros (for legacy pdflatex/bibtex).
+    Latex,
+}
+
+impl Default for UnicodeMode {
+    fn default() -> Self {
+        UnicodeMode::Utf8
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyGenConfig {
     pub parts: Vec<KeyPart>,
@@ -75,6 +90,10 @@ pub struct KeyGenConfig {
     // Formatting - Chemical Formula Style
     #[serde(default)]
     pub chem_formula_style: ChemFormulaStyle,
+
+    // Formatting - Unicode handling
+    #[serde(default)]
+    pub unicode_mode: UnicodeMode,
 }
 
 // --- Defaults for Serde ---
@@ -113,6 +132,7 @@ impl Default for KeyGenConfig {
             indent_width: default_indent_width(),
             field_order: default_field_order(),
             chem_formula_style: ChemFormulaStyle::default(),
+            unicode_mode: UnicodeMode::default(),
         }
     }
 }
@@ -145,8 +165,9 @@ pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
                     .get("year")
                     .map(|c| core::bib_to_string(c))
                     .unwrap_or_else(|| "0000".to_string());
-                if y.len() >= 4 {
-                    y[2..].to_string()
+                // FIX #14: Use chars() to avoid panic on non-ASCII year strings
+                if y.chars().count() >= 4 {
+                    y.chars().skip(2).collect()
                 } else {
                     y
                 }

@@ -107,7 +107,14 @@ fn perform_safe_save(model: &mut AppModel, path: PathBuf) {
 
     match std::fs::write(&tmp_path, &final_output) {
         Ok(_) => {
-            match std::fs::rename(&tmp_path, &path) {
+            // Try atomic rename first; fall back to copy+remove for cross-device
+            let rename_result = std::fs::rename(&tmp_path, &path).or_else(|_| {
+                std::fs::copy(&tmp_path, &path)?;
+                std::fs::remove_file(&tmp_path)?;
+                Ok::<(), std::io::Error>(())
+            });
+
+            match rename_result {
                 Ok(_) => {
                     model.current_file_path = Some(path.clone());
                     // Update internal state to match exact disk content
@@ -142,8 +149,6 @@ pub fn parse_manual(model: &mut AppModel, sender: ComponentSender<AppModel>, tex
 
     match Bibliography::parse(&text) {
         Ok(bib) => {
-            model.push_snapshot();
-
             let mut count = 0;
             for entry in bib.iter() {
                 sender.input(AppMsg::AddBiblatexEntry(entry.clone()));
