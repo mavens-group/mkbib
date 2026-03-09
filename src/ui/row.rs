@@ -1,3 +1,5 @@
+// src/ui/row.rs
+
 use crate::core;
 use gtk4::prelude::*;
 use relm4::prelude::*; // Add this if not present
@@ -18,6 +20,10 @@ impl BibEntry {
             .get("title")
             .map(|t| core::bib_to_string(t))
             .unwrap_or_else(|| "Untitled".to_string());
+
+        // Collapse any newlines/extra whitespace from multiline BibTeX fields
+        // so GTK labels wrap naturally instead of showing hard line breaks.
+        let title = title.split_whitespace().collect::<Vec<&str>>().join(" ");
 
         BibEntry {
             key: entry.key.clone(),
@@ -78,13 +84,16 @@ impl FactoryComponent for BibEntry {
                     gtk::Label {
                         set_label: &self.title,
                         set_halign: gtk::Align::Start,
-                        set_ellipsize: gtk::pango::EllipsizeMode::End,
+                        set_xalign: 0.0,
+                        set_wrap: true,
+                        set_wrap_mode: gtk::pango::WrapMode::WordChar,
                         add_css_class: "heading",
                     },
 
                     gtk::Label {
                         set_label: &format!("[{}] {}", self.kind, self.key),
                         set_halign: gtk::Align::Start,
+                        set_ellipsize: gtk::pango::EllipsizeMode::End,
                         add_css_class: "caption",
                     }
                 },

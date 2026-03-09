@@ -24,6 +24,33 @@ impl KeyPart {
     }
 }
 
+/// Controls how chemical formulas in titles are formatted on import.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ChemFormulaStyle {
+    /// No conversion — leave formulas as plain text
+    None,
+    /// Standard LaTeX math: $\mathrm{CO_{2}}$
+    Math,
+    /// mhchem package: $\ce{CO2}$  (requires \usepackage{mhchem})
+    Mhchem,
+}
+
+impl Default for ChemFormulaStyle {
+    fn default() -> Self {
+        ChemFormulaStyle::None
+    }
+}
+
+impl ChemFormulaStyle {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::None => "Disabled",
+            Self::Math => "LaTeX Math ($\\mathrm{...}$)",
+            Self::Mhchem => "mhchem ($\\ce{...}$)",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyGenConfig {
     pub parts: Vec<KeyPart>,
@@ -33,17 +60,21 @@ pub struct KeyGenConfig {
     #[serde(default)]
     pub abbreviate_journals: bool,
 
-    // ✅ NEW: Formatting - Indentation Character
+    // Formatting - Indentation Character
     #[serde(default = "default_indent")]
     pub indent_char: char,
 
-    // ✅ NEW: Formatting - Indentation Width
+    // Formatting - Indentation Width
     #[serde(default = "default_indent_width")]
     pub indent_width: u8,
 
-    // ✅ NEW: Formatting - Field Order
+    // Formatting - Field Order
     #[serde(default = "default_field_order")]
     pub field_order: Vec<String>,
+
+    // Formatting - Chemical Formula Style
+    #[serde(default)]
+    pub chem_formula_style: ChemFormulaStyle,
 }
 
 // --- Defaults for Serde ---
@@ -78,10 +109,10 @@ impl Default for KeyGenConfig {
             ],
             separator: String::new(),
             abbreviate_journals: false,
-            // ✅ Initialize new defaults
             indent_char: default_indent(),
             indent_width: default_indent_width(),
             field_order: default_field_order(),
+            chem_formula_style: ChemFormulaStyle::default(),
         }
     }
 }

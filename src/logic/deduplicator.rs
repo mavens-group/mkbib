@@ -99,14 +99,17 @@ pub fn find_duplicates(bib: &Bibliography) -> Vec<DuplicateGroup> {
 
 /// Extracts pretty metadata for display in the dialog
 fn extract_info(entry: &biblatex::Entry) -> EntryInfo {
-    // Get the raw title (preserve casing for display)
+    // Get the raw title (preserve casing for display), collapse whitespace
     let title_display = entry
         .fields
         .get("title")
         .map(|c| core::bib_to_string(c))
-        .unwrap_or_else(|| "Untitled".to_string());
+        .unwrap_or_else(|| "Untitled".to_string())
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ");
 
-    // Format authors nicely
+    // Format authors nicely, collapse whitespace
     let author_display = entry
         .author()
         .ok()
@@ -117,7 +120,10 @@ fn extract_info(entry: &biblatex::Entry) -> EntryInfo {
                 .collect::<Vec<_>>()
                 .join(", ")
         })
-        .unwrap_or_else(|| "Unknown Author".to_string());
+        .unwrap_or_else(|| "Unknown Author".to_string())
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ");
 
     EntryInfo {
         key: entry.key.clone(),

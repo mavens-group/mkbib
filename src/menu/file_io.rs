@@ -22,8 +22,7 @@ pub fn handle_open_response(
                 path.display()
             )));
 
-            // Capture original content for the Merger (Step 1 - Coming next)
-            // For now, we are still using the Rewrite strategy, but we prep the field.
+            // Capture original content for the Merger
             model.original_file_content = Some(content.clone());
 
             match Bibliography::parse(&content) {
@@ -75,7 +74,7 @@ pub fn trigger_save(model: &mut AppModel) {
     }
 }
 
-/// ✅ THE DIAMOND STANDARD SAVE FUNCTION
+/// ✅ DIAMOND STANDARD SAVE: Atomic, Backed-up, and Trimmed
 fn perform_safe_save(model: &mut AppModel, path: PathBuf) {
     // 1. Generate Content
     let output = if let Some(original) = &model.original_file_content {
@@ -92,18 +91,18 @@ fn perform_safe_save(model: &mut AppModel, path: PathBuf) {
         )
     };
 
-    // ✅ FIX: Use trim_end() to remove ALL trailing newlines first.
-    // format!("{}\n", ...) ensures exactly ONE newline exists at the end.
+    // ✅ CRITICAL FIX FOR ACCUMULATION:
+    // .trim_end() removes ALL trailing whitespace (newlines, spaces).
+    // format!("{}\n", ...) adds exactly ONE newline.
+    // This guarantees the file ends with exactly 1 newline, preventing growth.
     let final_output = format!("{}\n", output.trim_end());
 
-    // 2. Create Backup
+    // 2. Create Backup (Safety Net)
     if let Err(e) = crate::core::create_backup(&path) {
         println!("Backup warning: {}", e);
-        // We log to console/stdout instead of blocking the user with an alert
-        // because backups failing shouldn't stop the user from saving their work.
     }
 
-    // 3. ATOMIC WRITE (Write to .tmp -> Rename to .bib)
+    // 3. ATOMIC WRITE (Anti-Corruption)
     let tmp_path = path.with_extension("bib.tmp");
 
     match std::fs::write(&tmp_path, &final_output) {
@@ -111,7 +110,7 @@ fn perform_safe_save(model: &mut AppModel, path: PathBuf) {
             match std::fs::rename(&tmp_path, &path) {
                 Ok(_) => {
                     model.current_file_path = Some(path.clone());
-                    // Update internal state to match what is now on disk
+                    // Update internal state to match exact disk content
                     model.original_file_content = Some(final_output);
                     model.is_dirty = false;
                     model.sidebar.emit(SidebarMsg::SetStatus(format!(
@@ -119,14 +118,20 @@ fn perform_safe_save(model: &mut AppModel, path: PathBuf) {
                         path.display()
                     )));
                 }
-                Err(e) => model
-                    .alert
-                    .emit(AlertMsg::Show(format!("Rename failed: {}", e))),
+                Err(e) => {
+                    model.alert.emit(AlertMsg::Show(format!(
+                        "Critical Error: Failed to rename temp file.\n{}",
+                        e
+                    )));
+                }
             }
         }
-        Err(e) => model
-            .alert
-            .emit(AlertMsg::Show(format!("Write failed: {}", e))),
+        Err(e) => {
+            model.alert.emit(AlertMsg::Show(format!(
+                "Failed to write to disk (Temp file).\n{}",
+                e
+            )));
+        }
     }
 }
 

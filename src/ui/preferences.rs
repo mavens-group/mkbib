@@ -1,6 +1,6 @@
 // src/ui/preferences.rs
 
-use crate::core::keygen::{KeyGenConfig, KeyPart};
+use crate::core::keygen::{ChemFormulaStyle, KeyGenConfig, KeyPart};
 use gtk4::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -154,6 +154,7 @@ pub enum PreferencesMsg {
     ToggleAbbreviate(bool),
     SetIndentChar(char),
     SetIndentWidth(f64),
+    SetChemFormulaStyle(u32),
     MoveField(usize, FieldRowMsg),
 }
 
@@ -348,6 +349,49 @@ impl SimpleComponent for PreferencesModel {
                         gtk::Separator { set_margin_top: 10, set_margin_bottom: 10 },
 
                         gtk::Label {
+                            set_label: "Chemical Formulas",
+                            set_css_classes: &["title-4"],
+                            set_halign: gtk::Align::Start,
+                        },
+                        gtk::Label {
+                            set_label: "Convert chemical formulas in titles to LaTeX notation on import.",
+                            set_css_classes: &["caption"],
+                            set_halign: gtk::Align::Start,
+                        },
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 12,
+
+                            gtk::Label {
+                                set_label: "Formula Style:",
+                                set_hexpand: true,
+                                set_halign: gtk::Align::Start,
+                            },
+
+                            gtk::DropDown {
+                                set_model: Some(&gtk::StringList::new(&[
+                                    "Disabled",
+                                    "LaTeX Math  —  $\\mathrm{CO_{2}}$",
+                                    "mhchem  —  $\\ce{CO2}$",
+                                ])),
+
+                                #[watch]
+                                set_selected: match model.config.chem_formula_style {
+                                    ChemFormulaStyle::None => 0,
+                                    ChemFormulaStyle::Math => 1,
+                                    ChemFormulaStyle::Mhchem => 2,
+                                },
+
+                                connect_selected_notify[sender] => move |dd| {
+                                    sender.input(PreferencesMsg::SetChemFormulaStyle(dd.selected()));
+                                }
+                            },
+                        },
+
+                        gtk::Separator { set_margin_top: 10, set_margin_bottom: 10 },
+
+                        gtk::Label {
                             set_label: "Field Ordering",
                             set_css_classes: &["title-4"],
                             set_halign: gtk::Align::Start,
@@ -479,6 +523,13 @@ impl SimpleComponent for PreferencesModel {
             // --- Tab 2 ---
             PreferencesMsg::SetIndentChar(c) => self.config.indent_char = c,
             PreferencesMsg::SetIndentWidth(w) => self.config.indent_width = w as u8,
+            PreferencesMsg::SetChemFormulaStyle(idx) => {
+                self.config.chem_formula_style = match idx {
+                    1 => ChemFormulaStyle::Math,
+                    2 => ChemFormulaStyle::Mhchem,
+                    _ => ChemFormulaStyle::None,
+                };
+            }
 
             PreferencesMsg::MoveField(idx, move_msg) => {
                 let mut guard = self.fields_list.guard();

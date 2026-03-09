@@ -1,13 +1,13 @@
 // src/logic/merger.rs
 
 use crate::core::keygen::KeyGenConfig;
-use biblatex::Bibliography;
+use biblatex::{Bibliography, Chunk, Entry};
 use std::collections::{HashMap, HashSet};
 
 struct EntrySpan {
     key: String,
-    start: usize, // Byte index
-    end: usize,   // Byte index
+    start: usize,
+    end: usize,
 }
 
 pub fn merge_bibliography_into_source(
@@ -17,7 +17,6 @@ pub fn merge_bibliography_into_source(
 ) -> String {
     let spans = scan_entry_spans(original);
 
-    // Fallback if parsing fails (should rarely happen with scan_entry_spans)
     if spans.is_empty() && !bib.is_empty() {
         return generate_clean_bibliography(bib, config);
     }
@@ -35,44 +34,55 @@ pub fn merge_bibliography_into_source(
     }
 
     for span in sorted_spans {
-        // Write text BEFORE the entry (preserves existing newlines exactly)
-        // This text often contains the "\n" or "\n\n" from the previous save.
+        // 1. GAP: Preserve exact spacing/comments
         output.push_str(&original[last_pos..span.start]);
 
         let key_lower = span.key.to_lowercase();
 
-        if let Some(entry) = bib_lookup.get(&key_lower) {
-            // Write formatted entry
-            let serialized = crate::logic::formatter::format_entry(entry, config);
+        if let Some(curr_entry) = bib_lookup.get(&key_lower) {
+            let original_text_slice = &original[span.start..span.end];
 
-            // ✅ FIX: .trim() removes any trailing newline coming from the formatter.
-            // We rely on the "text BEFORE the entry" (pushed above) to provide the separation.
-            output.push_str(serialized.trim());
+            // Check Preservation: If equivalent, keep the RAW original block
+            let should_preserve = if let Ok(parsed_bib) = Bibliography::parse(original_text_slice) {
+                if let Some(orig_entry) = parsed_bib.iter().next() {
+                    entries_are_equivalent(orig_entry, curr_entry)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if should_preserve {
+                output.push_str(original_text_slice);
+            } else {
+                // ⚠️ CHANGED ENTRY: Reformat using HYBRID source
+                // This passes 'original' so the formatter can look up `{DNA}`
+                let serialized =
+                    crate::logic::formatter::format_entry(curr_entry, config, Some(original));
+                output.push_str(serialized.trim());
+            }
 
             processed_keys.insert(key_lower);
         } else {
-            // Entry Deleted: we skip writing the original span (deleting it)
+            // Deleted entry: do not write anything
         }
 
         last_pos = span.end;
     }
 
-    // Write tail
     output.push_str(&original[last_pos..]);
 
-    // Append NEW entries (e.g. created via UI)
+    // New Entries
     for entry in bib.iter() {
         if !processed_keys.contains(&entry.key.to_lowercase()) {
-            let serialized = crate::logic::formatter::format_entry(entry, config);
+            // New entries have no original source, pass None
+            let serialized = crate::logic::formatter::format_entry(entry, config, None);
 
-            // Only add a newline if the file doesn't end with one
             if !output.ends_with('\n') {
                 output.push('\n');
             }
-
-            // ✅ FIX: .trim() here too, just to be safe.
             output.push_str(serialized.trim());
-            // We do NOT add a trailing newline here, to satisfy your request.
         }
     }
 
@@ -82,31 +92,79 @@ pub fn merge_bibliography_into_source(
 fn generate_clean_bibliography(bib: &Bibliography, config: &KeyGenConfig) -> String {
     let mut out = String::new();
     for entry in bib.iter() {
-        // ✅ FIX: Trim here too so we control the spacing explicitly
-        out.push_str(crate::logic::formatter::format_entry(entry, config).trim());
-        // Minimal separation for clean file generation
+        out.push_str(crate::logic::formatter::format_entry(entry, config, None).trim());
         out.push('\n');
     }
     out
 }
 
-/// Robust scanner using char_indices for correct Byte Offsets
+fn entries_are_equivalent(a: &Entry, b: &Entry) -> bool {
+    if a.entry_type != b.entry_type {
+        return false;
+    }
+    if a.key != b.key {
+        return false;
+    }
+    if a.fields.len() != b.fields.len() {
+        return false;
+    }
+    for (k, v_a) in &a.fields {
+        if let Some(v_b) = b.fields.get(k) {
+            if chunks_to_string(v_a) != chunks_to_string(v_b) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn chunks_to_string(chunks: &[biblatex::Spanned<Chunk>]) -> String {
+    let mut s = String::new();
+    for chunk in chunks {
+        match &chunk.v {
+            Chunk::Normal(t) => s.push_str(t),
+            Chunk::Verbatim(t) => s.push_str(t),
+            Chunk::Math(t) => s.push_str(t),
+        }
+    }
+    s
+}
+
 fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
     let mut spans = HashMap::new();
     let mut chars_iter = text.char_indices().peekable();
-
     while let Some((idx, c)) = chars_iter.next() {
         if c == '@' {
             let start = idx;
-
-            // 1. Skip Type
+            // 1. Identify Type
+            let type_start = if let Some((i, _)) = chars_iter.peek() {
+                *i
+            } else {
+                continue;
+            };
             while let Some((_, c)) = chars_iter.peek() {
                 if c.is_whitespace() || *c == '{' || *c == '(' {
                     break;
                 }
                 chars_iter.next();
             }
+            let type_end = if let Some((i, _)) = chars_iter.peek() {
+                *i
+            } else {
+                text.len()
+            };
+            let entry_type = &text[type_start..type_end];
 
+            if entry_type.eq_ignore_ascii_case("preamble")
+                || entry_type.eq_ignore_ascii_case("string")
+                || entry_type.eq_ignore_ascii_case("comment")
+            {
+                continue;
+            }
+
+            // 2. Delim
             while let Some((_, c)) = chars_iter.peek() {
                 if !c.is_whitespace() {
                     break;
@@ -114,37 +172,29 @@ fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
                 chars_iter.next();
             }
 
-            // 2. Delimiter
-            let mut open_delim = '{';
-            let mut close_delim = '}';
-
-            if let Some((_, c)) = chars_iter.peek() {
+            let (open_delim, close_delim) = if let Some((_, c)) = chars_iter.peek() {
                 if *c == '{' {
-                    open_delim = '{';
-                    close_delim = '}';
                     chars_iter.next();
+                    ('{', '}')
                 } else if *c == '(' {
-                    open_delim = '(';
-                    close_delim = ')';
                     chars_iter.next();
+                    ('(', ')')
                 } else {
                     continue;
                 }
             } else {
                 continue;
-            }
+            };
 
-            // 3. Parse Key
+            // 3. Key
             while let Some((_, c)) = chars_iter.peek() {
                 if !c.is_whitespace() {
                     break;
                 }
                 chars_iter.next();
             }
-
             let key_start_opt = chars_iter.peek().map(|(i, _)| *i);
             let mut key_end = 0;
-
             if let Some(key_start) = key_start_opt {
                 while let Some((i, c)) = chars_iter.peek() {
                     if *c == ',' || *c == close_delim || c.is_whitespace() {
@@ -153,13 +203,11 @@ fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
                     }
                     chars_iter.next();
                 }
-
                 let key = text[key_start..key_end].trim().to_string();
 
-                // 4. Find Matching End
+                // 4. End
                 let mut depth = 1;
                 let mut end_pos = 0;
-
                 while let Some((i, c)) = chars_iter.next() {
                     if c == open_delim {
                         depth += 1;
@@ -171,7 +219,6 @@ fn scan_entry_spans(text: &str) -> HashMap<String, EntrySpan> {
                         }
                     }
                 }
-
                 if depth == 0 && !key.is_empty() {
                     spans.insert(
                         key.clone(),
