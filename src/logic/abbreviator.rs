@@ -113,11 +113,9 @@ fn get_ltwa() -> &'static HashMap<String, String> {
             .has_headers(true)
             .from_reader(STARTER_LTWA.as_bytes());
 
-        for result in rdr.records() {
-            if let Ok(record) = result {
-                if let (Some(w), Some(a)) = (record.get(0), record.get(1)) {
-                    m.insert(w.to_lowercase(), a.to_string());
-                }
+        for record in rdr.records().flatten() {
+            if let (Some(w), Some(a)) = (record.get(0), record.get(1)) {
+                m.insert(w.to_lowercase(), a.to_string());
             }
         }
 
@@ -126,13 +124,11 @@ fn get_ltwa() -> &'static HashMap<String, String> {
             let csv_path = dir.join("ltwa.csv");
             if csv_path.exists() {
                 if let Ok(mut file_rdr) = csv::Reader::from_path(csv_path) {
-                    for result in file_rdr.records() {
-                        if let Ok(record) = result {
-                            let word = record.get(0).unwrap_or("").to_lowercase();
-                            let abbr = record.get(1).unwrap_or("").to_string();
-                            if !word.is_empty() {
-                                m.insert(word, abbr);
-                            }
+                    for record in file_rdr.records().flatten() {
+                        let word = record.get(0).unwrap_or("").to_lowercase();
+                        let abbr = record.get(1).unwrap_or("").to_string();
+                        if !word.is_empty() {
+                            m.insert(word, abbr);
                         }
                     }
                 }

@@ -124,7 +124,7 @@ fn scan_entry_spans(text: &str) -> Vec<EntrySpan> {
                     };
                     chars_iter.next();
                     let mut depth = 1;
-                    while let Some((_, ch)) = chars_iter.next() {
+                    for (_, ch) in chars_iter.by_ref() {
                         if ch == open {
                             depth += 1;
                         } else if ch == close {
@@ -182,7 +182,7 @@ fn scan_entry_spans(text: &str) -> Vec<EntrySpan> {
                 // 4. End
                 let mut depth = 1;
                 let mut end_pos = 0;
-                while let Some((i, c)) = chars_iter.next() {
+                for (i, c) in chars_iter.by_ref() {
                     if c == open_delim {
                         depth += 1;
                     } else if c == close_delim {

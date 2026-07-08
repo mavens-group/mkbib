@@ -26,8 +26,10 @@ impl KeyPart {
 
 /// Controls how chemical formulas in titles are formatted on import.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ChemFormulaStyle {
     /// No conversion — leave formulas as plain text
+    #[default]
     None,
     /// Standard LaTeX math: $\mathrm{CO_{2}}$
     Math,
@@ -35,13 +37,9 @@ pub enum ChemFormulaStyle {
     Mhchem,
 }
 
-impl Default for ChemFormulaStyle {
-    fn default() -> Self {
-        ChemFormulaStyle::None
-    }
-}
 
 impl ChemFormulaStyle {
+    #[allow(dead_code)] // intended for the preferences UI dropdown
     pub fn label(&self) -> &str {
         match self {
             Self::None => "Disabled",
@@ -53,18 +51,15 @@ impl ChemFormulaStyle {
 
 /// Controls how Unicode characters in field values are handled on output.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum UnicodeMode {
     /// Pass Unicode through as UTF-8. Modern biber handles this natively.
+    #[default]
     Utf8,
     /// Convert Unicode accents to LaTeX macros (for legacy pdflatex/bibtex).
     Latex,
 }
 
-impl Default for UnicodeMode {
-    fn default() -> Self {
-        UnicodeMode::Utf8
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyGenConfig {
@@ -145,7 +140,7 @@ pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
         let val = match part {
             KeyPart::AuthorLastName => {
                 if let Ok(authors) = entry.author() {
-                    if let Some(first_author) = authors.iter().next() {
+                    if let Some(first_author) = authors.first() {
                         first_author.name.clone()
                     } else {
                         "Unknown".to_string()
@@ -175,13 +170,13 @@ pub fn generate_key(entry: &Entry, config: &KeyGenConfig) -> String {
             KeyPart::TitleFirstWord => entry
                 .fields
                 .get("title")
-                .map(|v| core::bib_to_string(v))
+                .map(|v| core::bib_to_display_string(v))
                 .map(|t| t.split_whitespace().next().unwrap_or("").to_string())
                 .unwrap_or_else(|| "Untitled".to_string()),
             KeyPart::JournalFirstWord => entry
                 .fields
                 .get("journal")
-                .map(|v| core::bib_to_string(v))
+                .map(|v| core::bib_to_display_string(v))
                 .map(|t| t.split_whitespace().next().unwrap_or("").to_string())
                 .unwrap_or_else(|| "Preprint".to_string()),
         };

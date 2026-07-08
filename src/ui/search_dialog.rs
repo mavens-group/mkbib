@@ -164,7 +164,7 @@ impl Component for SearchDialogModel {
         let results = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
             // Forward the Row's output (DOI String) to the Dialog's Input
-            .forward(sender.input_sender(), |doi| SearchDialogMsg::SelectDoi(doi));
+            .forward(sender.input_sender(), SearchDialogMsg::SelectDoi);
 
         let model = SearchDialogModel {
             is_visible: false,

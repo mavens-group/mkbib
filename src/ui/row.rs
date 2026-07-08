@@ -16,7 +16,7 @@ impl BibEntry {
         let title = entry
             .fields
             .get("title")
-            .map(|t| core::bib_to_string(t))
+            .map(|t| core::bib_to_display_string(t))
             .unwrap_or_else(|| "Untitled".to_string());
 
         // Collapse any newlines/extra whitespace from multiline BibTeX fields

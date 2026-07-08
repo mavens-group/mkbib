@@ -81,10 +81,10 @@ fn write_field(
         }
     }
 
-    let _ = write!(out, "{}{} = {{{}}},\n", indent, key, value);
+    let _ = writeln!(out, "{}{} = {{{}}},", indent, key, value);
 }
 
-/// Encodes Unicode accented characters to LaTeX accent macros.
+/// Encodes Unicode characters to LaTeX macros.
 ///
 /// Uses the `\"{a}` form (command outside braces) which is safe across
 /// both legacy (OT1/T1) and modern (TU/fontspec) font encodings.
@@ -96,7 +96,7 @@ fn encode_latex(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
-            // Umlauts / diaeresis
+            // ----- Umlauts / diaeresis -----
             'ä' => out.push_str("\\\"{a}"),
             'Ä' => out.push_str("\\\"{A}"),
             'ö' => out.push_str("\\\"{o}"),
@@ -107,7 +107,8 @@ fn encode_latex(text: &str) -> String {
             'Ë' => out.push_str("\\\"{E}"),
             'ï' => out.push_str("\\\"{i}"),
             'Ï' => out.push_str("\\\"{I}"),
-            // Acute
+            'ÿ' => out.push_str("\\\"{y}"),
+            // ----- Acute -----
             'é' => out.push_str("\\'{e}"),
             'É' => out.push_str("\\'{E}"),
             'á' => out.push_str("\\'{a}"),
@@ -120,7 +121,15 @@ fn encode_latex(text: &str) -> String {
             'Ú' => out.push_str("\\'{U}"),
             'ý' => out.push_str("\\'{y}"),
             'Ý' => out.push_str("\\'{Y}"),
-            // Grave
+            'ć' => out.push_str("\\'{c}"),
+            'Ć' => out.push_str("\\'{C}"),
+            'ń' => out.push_str("\\'{n}"),
+            'Ń' => out.push_str("\\'{N}"),
+            'ś' => out.push_str("\\'{s}"),
+            'Ś' => out.push_str("\\'{S}"),
+            'ź' => out.push_str("\\'{z}"),
+            'Ź' => out.push_str("\\'{Z}"),
+            // ----- Grave -----
             'è' => out.push_str("\\`{e}"),
             'È' => out.push_str("\\`{E}"),
             'à' => out.push_str("\\`{a}"),
@@ -131,7 +140,7 @@ fn encode_latex(text: &str) -> String {
             'Ò' => out.push_str("\\`{O}"),
             'ù' => out.push_str("\\`{u}"),
             'Ù' => out.push_str("\\`{U}"),
-            // Circumflex
+            // ----- Circumflex -----
             'ê' => out.push_str("\\^{e}"),
             'Ê' => out.push_str("\\^{E}"),
             'â' => out.push_str("\\^{a}"),
@@ -142,14 +151,16 @@ fn encode_latex(text: &str) -> String {
             'Ô' => out.push_str("\\^{O}"),
             'û' => out.push_str("\\^{u}"),
             'Û' => out.push_str("\\^{U}"),
-            // Tilde
+            'ĉ' => out.push_str("\\^{c}"),
+            'ŝ' => out.push_str("\\^{s}"),
+            // ----- Tilde -----
             'ñ' => out.push_str("\\~{n}"),
             'Ñ' => out.push_str("\\~{N}"),
             'ã' => out.push_str("\\~{a}"),
             'Ã' => out.push_str("\\~{A}"),
             'õ' => out.push_str("\\~{o}"),
             'Õ' => out.push_str("\\~{O}"),
-            // Caron / háček
+            // ----- Caron / háček -----
             'č' => out.push_str("\\v{c}"),
             'Č' => out.push_str("\\v{C}"),
             'š' => out.push_str("\\v{s}"),
@@ -158,7 +169,41 @@ fn encode_latex(text: &str) -> String {
             'Ž' => out.push_str("\\v{Z}"),
             'ř' => out.push_str("\\v{r}"),
             'Ř' => out.push_str("\\v{R}"),
-            // Special
+            'ě' => out.push_str("\\v{e}"),
+            'Ě' => out.push_str("\\v{E}"),
+            'ň' => out.push_str("\\v{n}"),
+            'Ň' => out.push_str("\\v{N}"),
+            'ď' => out.push_str("\\v{d}"),
+            'Ď' => out.push_str("\\v{D}"),
+            'ť' => out.push_str("\\v{t}"),
+            'Ť' => out.push_str("\\v{T}"),
+            // ----- Double acute (Hungarian) -----
+            'ő' => out.push_str("\\H{o}"),
+            'Ő' => out.push_str("\\H{O}"),
+            'ű' => out.push_str("\\H{u}"),
+            'Ű' => out.push_str("\\H{U}"),
+            // ----- Ogonek (Polish/Lithuanian) -----
+            'ą' => out.push_str("\\k{a}"),
+            'Ą' => out.push_str("\\k{A}"),
+            'ę' => out.push_str("\\k{e}"),
+            'Ę' => out.push_str("\\k{E}"),
+            // ----- Breve -----
+            'ğ' => out.push_str("\\u{g}"),
+            'Ğ' => out.push_str("\\u{G}"),
+            'ă' => out.push_str("\\u{a}"),
+            'Ă' => out.push_str("\\u{A}"),
+            // ----- Dot above -----
+            'ż' => out.push_str("\\.{z}"),
+            'Ż' => out.push_str("\\.{Z}"),
+            'İ' => out.push_str("\\.{I}"),
+            // ----- Cedilla -----
+            'ç' => out.push_str("\\c{c}"),
+            'Ç' => out.push_str("\\c{C}"),
+            'ş' => out.push_str("\\c{s}"),
+            'Ş' => out.push_str("\\c{S}"),
+            'ţ' => out.push_str("\\c{t}"),
+            'Ţ' => out.push_str("\\c{T}"),
+            // ----- Special letters -----
             'ß' => out.push_str("\\ss{}"),
             'å' => out.push_str("\\aa{}"),
             'Å' => out.push_str("\\AA{}"),
@@ -166,11 +211,77 @@ fn encode_latex(text: &str) -> String {
             'Ø' => out.push_str("\\O{}"),
             'æ' => out.push_str("\\ae{}"),
             'Æ' => out.push_str("\\AE{}"),
-            'ç' => out.push_str("\\c{c}"),
-            'Ç' => out.push_str("\\c{C}"),
+            'œ' => out.push_str("\\oe{}"),
+            'Œ' => out.push_str("\\OE{}"),
             'ł' => out.push_str("\\l{}"),
             'Ł' => out.push_str("\\L{}"),
             'đ' => out.push_str("\\dj{}"),
+            'Đ' => out.push_str("\\DJ{}"),
+            'ð' => out.push_str("\\dh{}"),
+            'Ð' => out.push_str("\\DH{}"),
+            'þ' => out.push_str("\\th{}"),
+            'Þ' => out.push_str("\\TH{}"),
+            'ı' => out.push_str("{\\i}"),
+            // ----- Typographic characters -----
+            '–' => out.push_str("--"),        // en-dash
+            '—' => out.push_str("---"),       // em-dash
+            '\u{2018}' => out.push('`'),      // left single quote '
+            '\u{2019}' => out.push('\''),     // right single quote '
+            '\u{201C}' => out.push_str("``"), // left double quote "
+            '\u{201D}' => out.push_str("''"), // right double quote "
+            '\u{2026}' => out.push_str("\\ldots{}"), // ellipsis …
+            // ----- Unicode math symbols (common in publisher metadata) -----
+            '\u{2212}' => out.push_str("$-$"),         // minus sign −
+            '×' => out.push_str("$\\times$"),          // multiplication ×
+            '±' => out.push_str("$\\pm$"),             // plus-minus
+            '∓' => out.push_str("$\\mp$"),             // minus-plus
+            '·' => out.push_str("$\\cdot$"),           // middle dot (math)
+            '≤' => out.push_str("$\\leq$"),            // less-equal
+            '≥' => out.push_str("$\\geq$"),            // greater-equal
+            '≈' => out.push_str("$\\approx$"),         // approximately
+            '≠' => out.push_str("$\\neq$"),            // not equal
+            '∞' => out.push_str("$\\infty$"),          // infinity
+            '→' => out.push_str("$\\rightarrow$"),     // right arrow
+            '←' => out.push_str("$\\leftarrow$"),      // left arrow
+            '↔' => out.push_str("$\\leftrightarrow$"), // bidirectional arrow
+            '∂' => out.push_str("$\\partial$"),        // partial derivative
+            '∇' => out.push_str("$\\nabla$"),          // nabla
+            '°' => out.push_str("$^{\\circ}$"),        // degree sign
+            '∼' => out.push_str("$\\sim$"),            // tilde operator
+            // ----- Greek letters (Unicode → LaTeX math) -----
+            'α' => out.push_str("$\\alpha$"),
+            'β' => out.push_str("$\\beta$"),
+            'γ' => out.push_str("$\\gamma$"),
+            'δ' => out.push_str("$\\delta$"),
+            'ε' => out.push_str("$\\epsilon$"),
+            'ζ' => out.push_str("$\\zeta$"),
+            'η' => out.push_str("$\\eta$"),
+            'θ' => out.push_str("$\\theta$"),
+            'ι' => out.push_str("$\\iota$"),
+            'κ' => out.push_str("$\\kappa$"),
+            'λ' => out.push_str("$\\lambda$"),
+            'μ' => out.push_str("$\\mu$"),
+            'ν' => out.push_str("$\\nu$"),
+            'ξ' => out.push_str("$\\xi$"),
+            'π' => out.push_str("$\\pi$"),
+            'ρ' => out.push_str("$\\rho$"),
+            'σ' => out.push_str("$\\sigma$"),
+            'τ' => out.push_str("$\\tau$"),
+            'υ' => out.push_str("$\\upsilon$"),
+            'φ' => out.push_str("$\\phi$"),
+            'χ' => out.push_str("$\\chi$"),
+            'ψ' => out.push_str("$\\psi$"),
+            'ω' => out.push_str("$\\omega$"),
+            'Γ' => out.push_str("$\\Gamma$"),
+            'Δ' => out.push_str("$\\Delta$"),
+            'Θ' => out.push_str("$\\Theta$"),
+            'Λ' => out.push_str("$\\Lambda$"),
+            'Ξ' => out.push_str("$\\Xi$"),
+            'Π' => out.push_str("$\\Pi$"),
+            'Σ' => out.push_str("$\\Sigma$"),
+            'Φ' => out.push_str("$\\Phi$"),
+            'Ψ' => out.push_str("$\\Psi$"),
+            'Ω' => out.push_str("$\\Omega$"),
             // Everything else passes through as-is
             _ => out.push(c),
         }

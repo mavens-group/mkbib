@@ -173,7 +173,7 @@ impl Component for AppModel {
                 }],
                 ..Default::default()
             })
-            .forward(sender.input_sender(), |resp| AppMsg::OpenResponse(resp));
+            .forward(sender.input_sender(), AppMsg::OpenResponse);
         open_dialog.widget().set_transient_for(Some(&root));
 
         let save_dialog = SaveDialog::builder()
@@ -183,7 +183,7 @@ impl Component for AppModel {
                 is_modal: true,
                 ..Default::default()
             })
-            .forward(sender.input_sender(), |resp| AppMsg::SaveResponse(resp));
+            .forward(sender.input_sender(), AppMsg::SaveResponse);
         save_dialog.widget().set_transient_for(Some(&root));
 
         let preferences = PreferencesModel::builder()

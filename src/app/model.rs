@@ -54,6 +54,7 @@ pub enum AppMsg {
     TriggerSave,
     TriggerSaveAs,
     TriggerQuit,
+    #[allow(dead_code)] // quit-without-saving path; handler wired in update.rs, not yet emitted
     ForceQuit,
     ShowPreferences,
     AbbreviateAllJournals,

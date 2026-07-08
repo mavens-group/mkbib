@@ -58,8 +58,10 @@ impl FactoryComponent for KeyPartRow {
     }
 
     fn update(&mut self, msg: Self::Input, sender: FactorySender<Self>) {
-        if let KeyPartRowMsg::Remove = msg {
-            let _ = sender.output(self.index);
+        match msg {
+            KeyPartRowMsg::Remove => {
+                let _ = sender.output(self.index);
+            }
         }
     }
 }

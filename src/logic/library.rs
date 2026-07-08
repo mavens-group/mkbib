@@ -109,24 +109,49 @@ fn make_mixed_chunks(s: &str) -> Vec<Spanned<Chunk>> {
     chunks
 }
 
-/// Normalizes a field's chunks: flattens to text, cleans up legacy LaTeX
-/// escapes, re-splits into proper Normal/Math chunks, and wraps bare
+/// Normalizes a field's chunks: flattens Normal/Math to text, cleans up legacy
+/// LaTeX escapes, re-splits into proper Normal/Math chunks, and wraps bare
 /// math content in the user's chosen chemical formula style.
+///
+/// Verbatim chunks (URLs, DOIs) are preserved as-is and not processed.
 fn normalize_field_chunks(
     chunks: &[Spanned<Chunk>],
     chem_style: &ChemFormulaStyle,
 ) -> Vec<Spanned<Chunk>> {
-    // 1. Flatten all chunks into a single string, re-inserting $...$ for Math
+    // Separate Verbatim chunks from Normal/Math
+    // We only normalize Normal/Math content; Verbatim passes through untouched.
+    let mut has_non_verbatim = false;
+    let mut has_verbatim = false;
+
+    for chunk in chunks {
+        match &chunk.v {
+            Chunk::Verbatim(_) => has_verbatim = true,
+            _ => has_non_verbatim = true,
+        }
+    }
+
+    // If the field is entirely Verbatim (e.g. url, doi), return as-is
+    if !has_non_verbatim {
+        return chunks.to_vec();
+    }
+
+    // If mixed Verbatim + Normal/Math, only normalize the non-Verbatim parts
+    // in-place. This is unusual but defensive.
+    if has_verbatim {
+        return chunks.to_vec();
+    }
+
+    // 1. Flatten Normal/Math chunks into a single string, re-inserting $...$ for Math
     let mut flat = String::new();
     for chunk in chunks {
         match &chunk.v {
             Chunk::Normal(t) => flat.push_str(t),
-            Chunk::Verbatim(t) => flat.push_str(t),
             Chunk::Math(t) => {
                 flat.push('$');
                 flat.push_str(t);
                 flat.push('$');
             }
+            Chunk::Verbatim(_) => unreachable!(), // filtered above
         }
     }
 
@@ -143,26 +168,38 @@ fn normalize_field_chunks(
         for chunk in &mut result {
             if let Chunk::Math(ref mut content) = chunk.v {
                 let trimmed = content.trim();
-                // Skip if already wrapped in a command
-                if trimmed.starts_with("\\mathrm{")
-                    || trimmed.starts_with("\\ce{")
-                    || trimmed.starts_with("\\text{")
-                {
-                    // Already has a wrapper — re-wrap only if switching styles
-                    if *chem_style == ChemFormulaStyle::Math
-                        && trimmed.starts_with("\\ce{")
-                        && trimmed.ends_with('}')
-                    {
-                        // \ce{...} → \mathrm{...}
-                        let inner = &trimmed[4..trimmed.len() - 1];
-                        *content = format!("\\mathrm{{{}}}", inner);
-                    } else if *chem_style == ChemFormulaStyle::Mhchem
-                        && trimmed.starts_with("\\mathrm{")
-                        && trimmed.ends_with('}')
-                    {
-                        // \mathrm{...} → \ce{...}
-                        let inner = &trimmed[8..trimmed.len() - 1];
-                        *content = format!("\\ce{{{}}}", inner);
+
+                // Detect existing wrapper commands
+                let existing_wrapper = if trimmed.starts_with("\\mathrm{") {
+                    Some("mathrm")
+                } else if trimmed.starts_with("\\ce{") {
+                    Some("ce")
+                } else if trimmed.starts_with("\\text{") {
+                    Some("text")
+                } else if trimmed.starts_with("\\textrm{") {
+                    Some("textrm")
+                } else {
+                    None
+                };
+
+                if let Some(wrapper) = existing_wrapper {
+                    // Already has a wrapper — extract inner content and re-wrap
+                    // if switching styles. Use brace-depth matching for safety.
+                    let prefix_len = wrapper.len() + 2; // "\\" + name + "{"
+                    if let Some(inner) = extract_brace_content(trimmed, prefix_len - 1) {
+                        match (chem_style, wrapper) {
+                            (ChemFormulaStyle::Math, "ce")
+                            | (ChemFormulaStyle::Math, "text")
+                            | (ChemFormulaStyle::Math, "textrm") => {
+                                *content = format!("\\mathrm{{{}}}", inner);
+                            }
+                            (ChemFormulaStyle::Mhchem, "mathrm")
+                            | (ChemFormulaStyle::Mhchem, "text")
+                            | (ChemFormulaStyle::Mhchem, "textrm") => {
+                                *content = format!("\\ce{{{}}}", inner);
+                            }
+                            _ => {} // Same style or unrecognized — leave as-is
+                        }
                     }
                 } else if looks_like_formula(trimmed) {
                     // Bare formula content — wrap in chosen style
@@ -185,6 +222,36 @@ fn normalize_field_chunks(
     result
 }
 
+/// Extracts the content inside the first brace-delimited group starting at
+/// position `brace_start` in `text`. Uses proper brace-depth matching.
+/// Returns None if the braces don't balance.
+fn extract_brace_content(text: &str, brace_start: usize) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    if brace_start >= chars.len() || chars[brace_start] != '{' {
+        return None;
+    }
+
+    let mut depth = 0;
+    let content_start = brace_start + 1;
+    let mut i = brace_start;
+
+    while i < chars.len() {
+        if chars[i] == '{' {
+            depth += 1;
+        } else if chars[i] == '}' {
+            depth -= 1;
+            if depth == 0 {
+                // Found the matching close brace
+                let content: String = chars[content_start..i].iter().collect();
+                return Some(content);
+            }
+        }
+        i += 1;
+    }
+
+    None // Unbalanced braces
+}
+
 /// Heuristic: does this math content look like a chemical formula?
 /// True if it contains element-like patterns (uppercase letter + optional
 /// lowercase + optional subscript/superscript).
@@ -199,20 +266,89 @@ fn looks_like_formula(math: &str) -> bool {
     //   - operators (+, -, =)
     //   - function names (\sin, \cos)
 
-    // Quick checks: if it contains Greek letters or = sign, probably pure math
-    if math.contains("\\alpha")
-        || math.contains("\\beta")
-        || math.contains("\\gamma")
-        || math.contains("\\delta")
-        || math.contains("\\sigma")
-        || math.contains("\\pi")
-        || math.contains("\\mu")
-        || math.contains("\\lambda")
-        || math.contains("\\theta")
-        || math.contains("\\epsilon")
-        || math.contains('=')
-    {
+    // Quick checks: if it contains Greek letters, = sign, or common math
+    // functions, it's probably pure math — not a chemical formula.
+    let greek_and_math = [
+        // Lowercase Greek
+        "\\alpha",
+        "\\beta",
+        "\\gamma",
+        "\\delta",
+        "\\epsilon",
+        "\\varepsilon",
+        "\\zeta",
+        "\\eta",
+        "\\theta",
+        "\\vartheta",
+        "\\iota",
+        "\\kappa",
+        "\\lambda",
+        "\\mu",
+        "\\nu",
+        "\\xi",
+        "\\pi",
+        "\\varpi",
+        "\\rho",
+        "\\varrho",
+        "\\sigma",
+        "\\varsigma",
+        "\\tau",
+        "\\upsilon",
+        "\\phi",
+        "\\varphi",
+        "\\chi",
+        "\\psi",
+        "\\omega",
+        // Uppercase Greek
+        "\\Gamma",
+        "\\Delta",
+        "\\Theta",
+        "\\Lambda",
+        "\\Xi",
+        "\\Pi",
+        "\\Sigma",
+        "\\Upsilon",
+        "\\Phi",
+        "\\Psi",
+        "\\Omega",
+        // Math functions and operators
+        "\\sin",
+        "\\cos",
+        "\\tan",
+        "\\log",
+        "\\ln",
+        "\\exp",
+        "\\lim",
+        "\\sum",
+        "\\prod",
+        "\\int",
+        "\\frac",
+        "\\sqrt",
+        "\\vec",
+        "\\hat",
+        "\\bar",
+        "\\dot",
+        "\\tilde",
+        // Relation operators
+        "\\leq",
+        "\\geq",
+        "\\neq",
+        "\\approx",
+        "\\sim",
+        "\\equiv",
+        "\\propto",
+        "\\parallel",
+        "\\perp",
+    ];
+
+    if math.contains('=') {
         return false;
+    }
+
+    for pattern in &greek_and_math {
+        if math.contains(pattern) {
+            return false;
+        }
     }
 
     // Must have at least one uppercase ASCII letter (element symbol)
@@ -268,50 +404,281 @@ fn clean_math_escapes(text: &str) -> String {
     result
 }
 
-// Fixed Helper: Smart tag stripping
+// Fixed Helper: Smart tag stripping with italic conversion
 fn strip_tags(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
-    let mut inside_tag = false;
-    let mut current_tag_name = String::new();
 
-    for c in input.chars() {
-        if c == '<' {
-            inside_tag = true;
-            current_tag_name.clear();
-        } else if c == '>' {
-            inside_tag = false;
-            let lower_tag = current_tag_name.to_lowercase();
-            if lower_tag.contains("math")
-                || lower_tag == "br"
-                || lower_tag == "p"
-                || lower_tag == "div"
+    // Track italic state for <i>/<em> → \textit{} conversion
+    let mut italic_stack: Vec<&str> = Vec::new();
+    let chars_vec: Vec<char> = input.chars().collect();
+    let len = chars_vec.len();
+    let mut i = 0;
+
+    while i < len {
+        if chars_vec[i] == '<' {
+            // Find the end of this tag
+            i += 1;
+            let mut tag_content = String::new();
+            while i < len && chars_vec[i] != '>' {
+                tag_content.push(chars_vec[i]);
+                i += 1;
+            }
+            if i < len {
+                i += 1; // skip '>'
+            }
+
+            let tag_lower = tag_content.to_lowercase();
+            let tag_lower = tag_lower.trim();
+
+            // Handle specific tags with semantic meaning
+            if tag_lower == "i"
+                || tag_lower == "em"
+                || tag_lower.starts_with("i ")
+                || tag_lower.starts_with("em ")
+            {
+                // Opening italic tag → start \textit{
+                output.push_str("\\textit{");
+                italic_stack.push(if tag_lower.starts_with("i") {
+                    "i"
+                } else {
+                    "em"
+                });
+            } else if tag_lower == "/i" || tag_lower == "/em" {
+                // Closing italic tag → close }
+                if !italic_stack.is_empty() {
+                    output.push('}');
+                    italic_stack.pop();
+                }
+            } else if tag_lower.contains("math")
+                || tag_lower == "br"
+                || tag_lower == "p"
+                || tag_lower == "div"
+                || tag_lower == "/p"
+                || tag_lower == "/div"
             {
                 output.push(' ');
             }
-        } else if inside_tag {
-            if !c.is_whitespace() {
-                current_tag_name.push(c);
-            }
+            // All other tags (including <sub>, <sup>, <b>, etc.) are silently stripped
         } else {
-            output.push(c);
+            output.push(chars_vec[i]);
+            i += 1;
         }
     }
 
-    let decoded = output
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&nbsp;", " ");
+    // Close any unclosed italic braces
+    for _ in &italic_stack {
+        output.push('}');
+    }
+
+    // Decode HTML entities (common ones from publisher BibTeX)
+    let decoded = decode_html_entities(&output);
 
     decoded.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
-fn sanitize_entry_fields(entry: &mut biblatex::Entry, chem_style: &ChemFormulaStyle) {
-    let fields_to_clean = ["title", "abstract", "journal", "journaltitle"];
+/// Decodes HTML entities (named, decimal, and hex) to their Unicode equivalents.
+fn decode_html_entities(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
 
-    for field in fields_to_clean {
+    while i < len {
+        if chars[i] == '&' {
+            // Try to find the closing semicolon
+            i += 1;
+            let mut entity = String::new();
+            while i < len && chars[i] != ';' && entity.len() < 12 {
+                entity.push(chars[i]);
+                i += 1;
+            }
+            if i < len && chars[i] == ';' {
+                i += 1; // skip ';'
+                if let Some(decoded) = decode_entity(&entity) {
+                    result.push_str(decoded);
+                } else if let Some(stripped) = entity.strip_prefix('#') {
+                    // Numeric entity
+                    if let Some(c) = decode_numeric_entity(stripped) {
+                        result.push(c);
+                    } else {
+                        // Unrecognized — keep original
+                        result.push('&');
+                        result.push_str(&entity);
+                        result.push(';');
+                    }
+                } else {
+                    // Unrecognized named entity — keep original
+                    result.push('&');
+                    result.push_str(&entity);
+                    result.push(';');
+                }
+            } else {
+                // No semicolon found — not an entity, keep the ampersand
+                result.push('&');
+                result.push_str(&entity);
+                // Don't skip the current char — it's the next char to process
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    result
+}
+
+fn decode_entity(entity: &str) -> Option<&'static str> {
+    match entity {
+        // Basic
+        "lt" => Some("<"),
+        "gt" => Some(">"),
+        "amp" => Some("&"),
+        "quot" => Some("\""),
+        "apos" => Some("'"),
+        "nbsp" => Some(" "),
+        // Dashes and hyphens
+        "ndash" => Some("–"),
+        "mdash" => Some("—"),
+        "minus" => Some("−"),
+        // Typographic
+        "lsquo" => Some("\u{2018}"), // '
+        "rsquo" => Some("\u{2019}"), // '
+        "ldquo" => Some("\u{201C}"), // "
+        "rdquo" => Some("\u{201D}"), // "
+        "hellip" => Some("…"),
+        // Math and science
+        "times" => Some("×"),
+        "divide" => Some("÷"),
+        "plusmn" => Some("±"),
+        "deg" => Some("°"),
+        "micro" => Some("μ"),
+        "middot" => Some("·"),
+        "sim" | "tilde" => Some("∼"),
+        "asymp" => Some("≈"),
+        "ne" => Some("≠"),
+        "le" | "leq" => Some("≤"),
+        "ge" | "geq" => Some("≥"),
+        "infin" => Some("∞"),
+        "rarr" => Some("→"),
+        "larr" => Some("←"),
+        "harr" => Some("↔"),
+        "part" => Some("∂"),
+        "nabla" => Some("∇"),
+        "prime" => Some("′"),
+        "Prime" => Some("″"),
+        // Greek letters (named entities)
+        "alpha" => Some("α"),
+        "beta" => Some("β"),
+        "gamma" => Some("γ"),
+        "delta" => Some("δ"),
+        "epsilon" => Some("ε"),
+        "zeta" => Some("ζ"),
+        "eta" => Some("η"),
+        "theta" => Some("θ"),
+        "iota" => Some("ι"),
+        "kappa" => Some("κ"),
+        "lambda" => Some("λ"),
+        "mu" => Some("μ"),
+        "nu" => Some("ν"),
+        "xi" => Some("ξ"),
+        "pi" => Some("π"),
+        "rho" => Some("ρ"),
+        "sigma" => Some("σ"),
+        "tau" => Some("τ"),
+        "upsilon" => Some("υ"),
+        "phi" => Some("φ"),
+        "chi" => Some("χ"),
+        "psi" => Some("ψ"),
+        "omega" => Some("ω"),
+        "Gamma" => Some("Γ"),
+        "Delta" => Some("Δ"),
+        "Theta" => Some("Θ"),
+        "Lambda" => Some("Λ"),
+        "Xi" => Some("Ξ"),
+        "Pi" => Some("Π"),
+        "Sigma" => Some("Σ"),
+        "Phi" => Some("Φ"),
+        "Psi" => Some("Ψ"),
+        "Omega" => Some("Ω"),
+        // Common accented characters
+        "Agrave" => Some("À"),
+        "Aacute" => Some("Á"),
+        "Acirc" => Some("Â"),
+        "Atilde" => Some("Ã"),
+        "Auml" => Some("Ä"),
+        "Aring" => Some("Å"),
+        "Ccedil" => Some("Ç"),
+        "Egrave" => Some("È"),
+        "Eacute" => Some("É"),
+        "Ecirc" => Some("Ê"),
+        "Euml" => Some("Ë"),
+        "Igrave" => Some("Ì"),
+        "Iacute" => Some("Í"),
+        "Icirc" => Some("Î"),
+        "Iuml" => Some("Ï"),
+        "Ntilde" => Some("Ñ"),
+        "Ograve" => Some("Ò"),
+        "Oacute" => Some("Ó"),
+        "Ocirc" => Some("Ô"),
+        "Otilde" => Some("Õ"),
+        "Ouml" => Some("Ö"),
+        "Ugrave" => Some("Ù"),
+        "Uacute" => Some("Ú"),
+        "Ucirc" => Some("Û"),
+        "Uuml" => Some("Ü"),
+        "agrave" => Some("à"),
+        "aacute" => Some("á"),
+        "acirc" => Some("â"),
+        "atilde" => Some("ã"),
+        "auml" => Some("ä"),
+        "aring" => Some("å"),
+        "ccedil" => Some("ç"),
+        "egrave" => Some("è"),
+        "eacute" => Some("é"),
+        "ecirc" => Some("ê"),
+        "euml" => Some("ë"),
+        "igrave" => Some("ì"),
+        "iacute" => Some("í"),
+        "icirc" => Some("î"),
+        "iuml" => Some("ï"),
+        "ntilde" => Some("ñ"),
+        "ograve" => Some("ò"),
+        "oacute" => Some("ó"),
+        "ocirc" => Some("ô"),
+        "otilde" => Some("õ"),
+        "ouml" => Some("ö"),
+        "ugrave" => Some("ù"),
+        "uacute" => Some("ú"),
+        "ucirc" => Some("û"),
+        "uuml" => Some("ü"),
+        "szlig" => Some("ß"),
+        "eth" => Some("ð"),
+        "thorn" => Some("þ"),
+        "AElig" => Some("Æ"),
+        "aelig" => Some("æ"),
+        "OElig" => Some("Œ"),
+        "oelig" => Some("œ"),
+        _ => None,
+    }
+}
+
+/// Decodes numeric character references: &#NNN; or &#xHHH;
+fn decode_numeric_entity(num_str: &str) -> Option<char> {
+    let code = if num_str.starts_with('x') || num_str.starts_with('X') {
+        u32::from_str_radix(&num_str[1..], 16).ok()?
+    } else {
+        num_str.parse::<u32>().ok()?
+    };
+    char::from_u32(code)
+}
+
+fn sanitize_entry_fields(entry: &mut biblatex::Entry, chem_style: &ChemFormulaStyle) {
+    // Text fields: strip tags / convert formula markup when tags are present,
+    // and ALWAYS decode HTML entities — publishers (esp. APS) embed entities
+    // like &beta;, &ndash;, &#8722; directly in tag-less titles.
+    let text_fields = ["title", "abstract", "journal", "journaltitle"];
+
+    for field in text_fields {
         if let Some(chunks) = entry.fields.get(field) {
             let raw_text = core::bib_to_string(chunks);
             let mut text = raw_text.clone();
@@ -321,13 +688,18 @@ fn sanitize_entry_fields(entry: &mut biblatex::Entry, chem_style: &ChemFormulaSt
                 let has_math_markup = has_formula_markup(&text);
 
                 if has_math_markup && *chem_style != ChemFormulaStyle::None {
-                    // Convert <sub>/<sup>/<math> to LaTeX FIRST, then strip remaining tags
+                    // Convert <sub>/<sup>/<math> to LaTeX FIRST, then strip remaining
+                    // tags. strip_tags() also decodes HTML entities.
                     text = convert_html_math_to_latex(&text, chem_style);
                     text = strip_tags(&text);
                 } else {
-                    // No formula markup (or feature disabled) — just strip tags normally
+                    // No formula markup (or feature disabled) — strip tags normally
+                    // (strip_tags() also decodes HTML entities).
                     text = strip_tags(&text);
                 }
+            } else if text.contains('&') {
+                // No tags, but possible HTML entities in a tag-less title/journal.
+                text = decode_html_entities(&text);
             }
 
             // Only update the field if something changed
@@ -335,6 +707,25 @@ fn sanitize_entry_fields(entry: &mut biblatex::Entry, chem_style: &ChemFormulaSt
                 // Use make_mixed_chunks so $...$ math is stored as Chunk::Math,
                 // preventing double-escaping by to_bibtex_string() and encode_latex
                 entry.fields.insert(field.into(), make_mixed_chunks(&text));
+            }
+        }
+    }
+
+    // Name fields: decode HTML entities ONLY (e.g. M&uuml;ller -> Müller).
+    // Never run tag/formula conversion here — <i>/<sub> logic is meaningless in
+    // a person name, and a stray entity would otherwise pollute key generation.
+    let name_fields = ["author", "editor"];
+
+    for field in name_fields {
+        if let Some(chunks) = entry.fields.get(field) {
+            let raw_text = core::bib_to_string(chunks);
+            if raw_text.contains('&') {
+                let decoded = decode_html_entities(&raw_text);
+                if decoded != raw_text {
+                    // Names carry no math; store as a plain Normal chunk so the
+                    // "and"-separated structure is preserved for author parsing.
+                    entry.fields.insert(field.into(), make_normal_chunk(&decoded));
+                }
             }
         }
     }
@@ -563,14 +954,23 @@ fn extract_and_convert_formula(source: &str, style: &ChemFormulaStyle) -> (Strin
             format!("$\\mathrm{{{}}}$", inner)
         }
         ChemFormulaStyle::Mhchem => {
+            // mhchem handles subscripts natively — bare numbers after elements
+            // are automatically subscripted, so CO2 renders as CO₂.
+            // Only use ^{} for superscripts (charge notation like 2+).
             let mut inner = String::new();
             for seg in &segments {
                 match seg {
                     FormulaSegment::Text(t) => inner.push_str(t),
                     FormulaSegment::Sub(s) => {
-                        inner.push_str("_{");
-                        inner.push_str(s);
-                        inner.push('}');
+                        // mhchem: bare numbers are auto-subscripted.
+                        // For complex subscripts like "1-x", use _{}.
+                        if s.chars().all(|c| c.is_ascii_digit()) {
+                            inner.push_str(s);
+                        } else {
+                            inner.push_str("_{");
+                            inner.push_str(s);
+                            inner.push('}');
+                        }
                     }
                     FormulaSegment::Sup(s) => {
                         inner.push_str("^{");
@@ -712,6 +1112,7 @@ pub fn finish_edit(
     content: String,
     _sender: ComponentSender<AppModel>,
 ) {
+    let content = core::normalize_month_macros(&content);
     let parsed = Bibliography::parse(&content);
 
     match parsed {
@@ -891,10 +1292,16 @@ pub fn unabbreviate_all_entries(model: &mut AppModel) {
 /// Reformat All: Re-processes every entry with current settings.
 ///
 /// This applies the current preferences to all entries:
-///   - Re-runs sanitize (HTML stripping, chemical formula conversion)
+///   - Normalizes chunks (cleans legacy escapes, re-splits Normal/Math,
+///     applies chemical formula style with conversion between styles)
 ///   - Re-abbreviates or un-abbreviates journals based on config
 ///   - Strips all spans to 0..0 so the formatter uses the clean path
-///   - Regenerates keys if requested
+///
+/// NOTE: Does NOT re-run sanitize_entry_fields — that is an import-time
+/// operation for HTML cleanup. Already-loaded entries have clean chunk data.
+/// Running sanitize again would flatten Math chunks via bib_to_string,
+/// destroying the Normal/Math boundaries that normalize_field_chunks
+/// carefully establishes.
 ///
 /// The actual reformatting (indent, field order, Unicode mode) happens
 /// at save time via the formatter, but this ensures the data is clean.
@@ -915,8 +1322,9 @@ pub fn reformat_all_entries(model: &mut AppModel) {
                 }
             }
 
-            // 2. Normalize chunks: flatten, clean legacy escapes inside math,
-            //    re-split into proper Normal/Math chunks, apply chem style
+            // 2. Normalize chunks: flatten Normal/Math, clean legacy escapes,
+            //    re-split into proper Normal/Math chunks, apply chem style.
+            //    Verbatim chunks are preserved as-is.
             let field_keys: Vec<String> = entry.fields.keys().cloned().collect();
             for field_key in field_keys {
                 if let Some(chunks) = entry.fields.get(&field_key) {
@@ -925,18 +1333,14 @@ pub fn reformat_all_entries(model: &mut AppModel) {
                 }
             }
 
-            // 3. Re-run sanitize (HTML cleanup, chemical formula conversion)
-            let mut owned_entry = entry.clone();
-            sanitize_entry_fields(&mut owned_entry, &chem_style);
-
-            // 4. Journal abbreviation/unabbreviation
+            // 3. Journal abbreviation/unabbreviation
             if abbreviate {
                 for field_name in &["journal", "journaltitle"] {
-                    if let Some(chunk_val) = owned_entry.fields.get(*field_name) {
+                    if let Some(chunk_val) = entry.fields.get(*field_name) {
                         let original = core::bib_to_string(chunk_val);
                         let abbr = abbreviator::abbreviate_journal(&original);
                         if !abbr.is_empty() && abbr != original {
-                            owned_entry
+                            entry
                                 .fields
                                 .insert((*field_name).into(), make_normal_chunk(&abbr));
                         }
@@ -944,16 +1348,7 @@ pub fn reformat_all_entries(model: &mut AppModel) {
                 }
             }
 
-            // 5. Write back (remove old, insert new to update in place)
-            let updated_key = owned_entry.key.clone();
-            model.bibliography.remove(&key);
-            model.bibliography.insert(owned_entry);
             count += 1;
-
-            // Preserve key if it changed (shouldn't, but defensive)
-            if updated_key != key {
-                // Key was modified during sanitize — already handled by insert
-            }
         }
     }
 
@@ -963,4 +1358,68 @@ pub fn reformat_all_entries(model: &mut AppModel) {
         "Reformatted {} entries.",
         count
     )));
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::*;
+    use biblatex::Bibliography;
+
+    /// Parse a one-entry BibTeX string, run sanitize_entry_fields, and return
+    /// the flattened text of `field`.
+    fn sanitized_field(src: &str, field: &str, chem: ChemFormulaStyle) -> String {
+        let bib = Bibliography::parse(src).expect("parse");
+        let mut entry = bib.iter().next().expect("one entry").clone();
+        sanitize_entry_fields(&mut entry, &chem);
+        core::bib_to_string(entry.fields.get(field).expect("field present"))
+    }
+
+    // Gap 1: entities in a TAG-LESS title must be decoded.
+    #[test]
+    fn tagless_title_entities_are_decoded() {
+        let src = r#"@article{k, title = {Superconductivity in &beta;-pyrochlore, 20&ndash;30 K, &#8722;5 meV}}"#;
+        let got = sanitized_field(src, "title", ChemFormulaStyle::None);
+        assert_eq!(got, "Superconductivity in β-pyrochlore, 20–30 K, −5 meV");
+    }
+
+    // Gap 2: entities in author names must be decoded (entity-only path).
+    #[test]
+    fn author_entities_are_decoded() {
+        let src = r#"@article{k, author = {M&uuml;ller, Kurt and Kr&auml;mer, Ann}}"#;
+        let got = sanitized_field(src, "author", ChemFormulaStyle::None);
+        assert_eq!(got, "Müller, Kurt and Krämer, Ann");
+    }
+
+    // Editor field uses the same entity-only path.
+    #[test]
+    fn editor_entities_are_decoded() {
+        let src = r#"@book{k, editor = {D'Angelo, Jos&eacute;}}"#;
+        let got = sanitized_field(src, "editor", ChemFormulaStyle::None);
+        assert_eq!(got, "D'Angelo, José");
+    }
+
+    // Regression: the tags-present path still converts <i> and decodes entities.
+    #[test]
+    fn tagged_title_still_converts_and_decodes() {
+        let src = r#"@article{k, title = {Higgs <i>boson</i> at &beta;-decay}}"#;
+        let got = sanitized_field(src, "title", ChemFormulaStyle::None);
+        assert_eq!(got, "Higgs \\textit{boson} at β-decay");
+    }
+
+    // Guard: a URL/Verbatim field with a bare & must NOT be touched.
+    #[test]
+    fn url_ampersand_is_left_untouched() {
+        let src = r#"@article{k, title = {Plain}, url = {https://x.org/q?a=1&b=2}}"#;
+        let got = sanitized_field(src, "url", ChemFormulaStyle::None);
+        assert_eq!(got, "https://x.org/q?a=1&b=2");
+    }
+
+    // Guard: a clean title with no tags and no entities is unchanged (and no
+    // spurious rewrite that could reinterpret it).
+    #[test]
+    fn plain_title_is_unchanged() {
+        let src = r#"@article{k, title = {A simple clean title}}"#;
+        let got = sanitized_field(src, "title", ChemFormulaStyle::None);
+        assert_eq!(got, "A simple clean title");
+    }
 }

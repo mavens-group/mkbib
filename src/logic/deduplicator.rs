@@ -202,7 +202,7 @@ fn get_title_normalized(entry: &biblatex::Entry) -> String {
     entry
         .fields
         .get("title")
-        .map(|c| core::bib_to_string(c))
+        .map(|c| core::bib_to_display_string(c))
         .unwrap_or_default()
         .to_lowercase()
         .chars()
@@ -318,7 +318,7 @@ fn extract_info(entry: &biblatex::Entry) -> EntryInfo {
     let title_display = entry
         .fields
         .get("title")
-        .map(|c| core::bib_to_string(c))
+        .map(|c| core::bib_to_display_string(c))
         .unwrap_or_else(|| "Untitled".to_string())
         .split_whitespace()
         .collect::<Vec<&str>>()
@@ -344,7 +344,7 @@ fn extract_info(entry: &biblatex::Entry) -> EntryInfo {
         .fields
         .get("journaltitle")
         .or_else(|| entry.fields.get("journal"))
-        .map(|c| core::bib_to_string(c))
+        .map(|c| core::bib_to_display_string(c))
         .map(|s| s.split_whitespace().collect::<Vec<&str>>().join(" "))
         .unwrap_or_else(|| {
             // Check for arXiv or other preprint identifiers

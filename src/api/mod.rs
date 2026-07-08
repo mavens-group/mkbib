@@ -26,6 +26,7 @@ pub async fn fetch_doi(doi: &str) -> Result<Bibliography> {
     .text()
     .await?;
 
+  let resp = crate::core::normalize_month_macros(&resp);
   Bibliography::parse(&resp).map_err(|e| anyhow!("Parse Error: {}", e))
 }
 

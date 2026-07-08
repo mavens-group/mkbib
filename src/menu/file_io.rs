@@ -25,7 +25,8 @@ pub fn handle_open_response(
             // Capture original content for the Merger
             model.original_file_content = Some(content.clone());
 
-            match Bibliography::parse(&content) {
+            let parse_input = crate::core::normalize_month_macros(&content);
+            match Bibliography::parse(&parse_input) {
                 Ok(bib) => {
                     let count = bib.len();
                     model.bibliography = bib;
@@ -147,6 +148,7 @@ pub fn parse_manual(model: &mut AppModel, sender: ComponentSender<AppModel>, tex
         return;
     }
 
+    let text = crate::core::normalize_month_macros(&text);
     match Bibliography::parse(&text) {
         Ok(bib) => {
             let mut count = 0;
