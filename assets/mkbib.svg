@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   viewBox="0 0 80 84"
-   width="80"
-   height="84"
+   viewBox="0 0 128 128"
+   width="128"
+   height="128"
    version="1.1"
    id="svg2"
    sodipodi:docname="mkbib-mono.svg"
@@ -23,8 +23,8 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="7.171875"
-     inkscape:cx="40.017429"
-     inkscape:cy="41.969499"
+     inkscape:cx="64"
+     inkscape:cy="64"
      inkscape:window-width="1920"
      inkscape:window-height="1168"
      inkscape:window-x="0"
@@ -63,19 +63,22 @@
       }
     }
   </style>
-  <!-- Mkbib: Syntactic Curly Braces (Monochrome / currentColor) -->
+  <circle
+     style="fill:#ffffff;fill-opacity:1;stroke-width:3.92364"
+     id="path3"
+     cx="64"
+     cy="64"
+     r="64" />
+  <!-- Mkbib: Syntactic Curly Braces (Squarish 90x90) -->
   <g
-     id="mkbib"
-     transform="translate(-24,-22)">
-    <!-- Left Curly Brace { -->
+     id="mkbib">
     <path
        class="primary"
-       d="M 52,22 H 36 V 49 L 24,64 36,79 v 27 H 52 V 94 H 46 V 74 L 32,64 46,54 V 34 h 6 z"
+       d="M 52,19 L 34,19 L 34,48 L 19,64 L 34,80 L 34,109 L 52,109 L 52,96 L 46,96 L 46,75 L 29,64 L 46,53 L 46,32 L 52,32 Z"
        id="path1" />
-    <!-- Right Curly Brace } -->
     <path
        class="secondary"
-       d="m 76,22 h 16 v 27 l 12,15 -12,15 v 27 H 76 V 94 h 6 V 74 L 96,64 82,54 V 34 h -6 z"
+       d="M 76,19 L 94,19 L 94,48 L 109,64 L 94,80 L 94,109 L 76,109 L 76,96 L 82,96 L 82,75 L 99,64 L 82,53 L 82,32 L 76,32 Z"
        id="path2" />
   </g>
 </svg>
