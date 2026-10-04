@@ -62,12 +62,10 @@ fn write_field(
 
     for chunk in chunks {
         match &chunk.v {
-            biblatex::Chunk::Normal(t) => {
-                match unicode_mode {
-                    UnicodeMode::Utf8 => value.push_str(t),
-                    UnicodeMode::Latex => value.push_str(&encode_latex(t)),
-                }
-            }
+            biblatex::Chunk::Normal(t) => match unicode_mode {
+                UnicodeMode::Utf8 => value.push_str(t),
+                UnicodeMode::Latex => value.push_str(&encode_latex(t)),
+            },
             biblatex::Chunk::Verbatim(t) => {
                 // Verbatim content (URLs, DOIs) — never encode
                 value.push_str(t);
@@ -223,31 +221,31 @@ fn encode_latex(text: &str) -> String {
             'Þ' => out.push_str("\\TH{}"),
             'ı' => out.push_str("{\\i}"),
             // ----- Typographic characters -----
-            '–' => out.push_str("--"),        // en-dash
-            '—' => out.push_str("---"),       // em-dash
-            '\u{2018}' => out.push('`'),      // left single quote '
-            '\u{2019}' => out.push('\''),     // right single quote '
-            '\u{201C}' => out.push_str("``"), // left double quote "
-            '\u{201D}' => out.push_str("''"), // right double quote "
+            '–' => out.push_str("--"),               // en-dash
+            '—' => out.push_str("---"),              // em-dash
+            '\u{2018}' => out.push('`'),             // left single quote '
+            '\u{2019}' => out.push('\''),            // right single quote '
+            '\u{201C}' => out.push_str("``"),        // left double quote "
+            '\u{201D}' => out.push_str("''"),        // right double quote "
             '\u{2026}' => out.push_str("\\ldots{}"), // ellipsis …
             // ----- Unicode math symbols (common in publisher metadata) -----
-            '\u{2212}' => out.push_str("$-$"),         // minus sign −
-            '×' => out.push_str("$\\times$"),          // multiplication ×
-            '±' => out.push_str("$\\pm$"),             // plus-minus
-            '∓' => out.push_str("$\\mp$"),             // minus-plus
-            '·' => out.push_str("$\\cdot$"),           // middle dot (math)
-            '≤' => out.push_str("$\\leq$"),            // less-equal
-            '≥' => out.push_str("$\\geq$"),            // greater-equal
-            '≈' => out.push_str("$\\approx$"),         // approximately
-            '≠' => out.push_str("$\\neq$"),            // not equal
-            '∞' => out.push_str("$\\infty$"),          // infinity
-            '→' => out.push_str("$\\rightarrow$"),     // right arrow
-            '←' => out.push_str("$\\leftarrow$"),      // left arrow
+            '\u{2212}' => out.push_str("$-$"),     // minus sign −
+            '×' => out.push_str("$\\times$"),      // multiplication ×
+            '±' => out.push_str("$\\pm$"),         // plus-minus
+            '∓' => out.push_str("$\\mp$"),         // minus-plus
+            '·' => out.push_str("$\\cdot$"),       // middle dot (math)
+            '≤' => out.push_str("$\\leq$"),        // less-equal
+            '≥' => out.push_str("$\\geq$"),        // greater-equal
+            '≈' => out.push_str("$\\approx$"),     // approximately
+            '≠' => out.push_str("$\\neq$"),        // not equal
+            '∞' => out.push_str("$\\infty$"),      // infinity
+            '→' => out.push_str("$\\rightarrow$"), // right arrow
+            '←' => out.push_str("$\\leftarrow$"),  // left arrow
             '↔' => out.push_str("$\\leftrightarrow$"), // bidirectional arrow
-            '∂' => out.push_str("$\\partial$"),        // partial derivative
-            '∇' => out.push_str("$\\nabla$"),          // nabla
-            '°' => out.push_str("$^{\\circ}$"),        // degree sign
-            '∼' => out.push_str("$\\sim$"),            // tilde operator
+            '∂' => out.push_str("$\\partial$"),    // partial derivative
+            '∇' => out.push_str("$\\nabla$"),      // nabla
+            '°' => out.push_str("$^{\\circ}$"),    // degree sign
+            '∼' => out.push_str("$\\sim$"),        // tilde operator
             // ----- Greek letters (Unicode → LaTeX math) -----
             'α' => out.push_str("$\\alpha$"),
             'β' => out.push_str("$\\beta$"),

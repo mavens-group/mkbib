@@ -134,6 +134,7 @@ impl Component for SearchDialogModel {
                 gtk::ScrolledWindow {
                     set_vexpand: true,
                     set_hscrollbar_policy: gtk::PolicyType::Never,
+                    add_css_class: "card",
 
                     #[local_ref]
                     results_list -> gtk::ListBox {

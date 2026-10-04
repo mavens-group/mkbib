@@ -18,6 +18,18 @@ use crate::ui::search_dialog::SearchDialogModel;
 use crate::ui::sidebar::SidebarModel;
 use std::collections::VecDeque;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingAction {
+    Open,
+    Quit,
+}
+
+#[derive(Clone)]
+pub struct DocumentSnapshot {
+    pub bibliography: Bibliography,
+    pub revision: u64,
+}
+
 // --- State ---
 pub struct AppModel {
     pub bibliography: Bibliography,
@@ -34,11 +46,16 @@ pub struct AppModel {
     pub details_dialog: Controller<DetailsDialogModel>,
     pub search_dialog: Controller<SearchDialogModel>,
     pub duplicate_dialog: Controller<DuplicateDialogModel>,
+    pub unsaved_dialog: Controller<crate::ui::unsaved_dialog::UnsavedDialogModel>,
 
     pub key_config: KeyGenConfig,
     pub is_dirty: bool,
-    pub undo_stack: VecDeque<Bibliography>,
-    pub redo_stack: VecDeque<Bibliography>,
+    pub undo_stack: VecDeque<DocumentSnapshot>,
+    pub redo_stack: VecDeque<DocumentSnapshot>,
+    pub current_revision: u64,
+    pub saved_revision: u64,
+    pub next_revision: u64,
+    pub pending_action: Option<PendingAction>,
 }
 
 // --- Messages ---
@@ -56,6 +73,7 @@ pub enum AppMsg {
     TriggerQuit,
     #[allow(dead_code)] // quit-without-saving path; handler wired in update.rs, not yet emitted
     ForceQuit,
+    UnsavedDecision(crate::ui::unsaved_dialog::UnsavedDecision),
     ShowPreferences,
     AbbreviateAllJournals,
     UnabbreviateAllJournals,
@@ -95,6 +113,24 @@ impl AppModel {
         }
 
         // 3. Save current state
-        self.undo_stack.push_back(self.bibliography.clone());
+        self.undo_stack.push_back(DocumentSnapshot {
+            bibliography: self.bibliography.clone(),
+            revision: self.current_revision,
+        });
+    }
+
+    pub fn mark_changed(&mut self) {
+        self.current_revision = self.next_revision;
+        self.next_revision = self.next_revision.saturating_add(1);
+        self.sync_dirty();
+    }
+
+    pub fn mark_saved(&mut self) {
+        self.saved_revision = self.current_revision;
+        self.sync_dirty();
+    }
+
+    pub fn sync_dirty(&mut self) {
+        self.is_dirty = self.current_revision != self.saved_revision;
     }
 }

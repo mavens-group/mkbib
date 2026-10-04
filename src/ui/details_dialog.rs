@@ -52,6 +52,7 @@ impl Component for DetailsDialogModel {
                 gtk::ScrolledWindow {
                     set_vexpand: true,
                     set_hscrollbar_policy: gtk::PolicyType::Automatic,
+                    add_css_class: "card",
 
                     #[name = "details_view"]
                     gtk::TextView {

@@ -5,3 +5,4 @@ pub mod preferences;
 pub mod row;
 pub mod search_dialog;
 pub mod sidebar;
+pub mod unsaved_dialog;

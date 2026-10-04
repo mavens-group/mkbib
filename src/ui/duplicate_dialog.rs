@@ -79,87 +79,88 @@ impl Component for DuplicateDialogModel {
                         set_orientation: gtk::Orientation::Vertical,
                         set_hexpand: true, // Expand to take available space
                         set_width_request: 100, // Minimum width prevents collapse
-                        set_spacing: 12,
+                        set_spacing: 8,
                         set_margin_end: 6, // Half of the gap
 
-                        // LEFT FRAME
-                        gtk::Frame {
-                            set_label: Some("Original (Existing)"),
+                        gtk::Label {
+                            set_label: "Original (Existing)",
+                            set_halign: gtk::Align::Start,
+                            add_css_class: "heading",
+                        },
+
+                        // LEFT CARD
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
                             set_vexpand: true,
-                            // CSS class to potentially add borders via style.css
-                            set_css_classes: &["view"],
+                            set_css_classes: &["card", "view"],
+                            set_spacing: 8,
 
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_margin_all: 12,
-                                set_spacing: 8,
+                            // Title Label - The Troublemaker
+                            gtk::Label {
+                                #[watch] set_label: &model.original_info().title,
+                                set_css_classes: &["heading"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
 
-                                // Title Label - The Troublemaker
-                                gtk::Label {
-                                    #[watch] set_label: &model.original_info().title,
-                                    set_css_classes: &["heading"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
+                                // --- CRITICAL FIX START ---
+                                set_wrap: true,
+                                set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                                set_hexpand: true, // Fill the box
+                                set_width_chars: 1, // "I am happy being tiny"
+                                set_max_width_chars: 1, // "Don't ask for size"
+                                // --- CRITICAL FIX END ---
+                            },
 
-                                    // --- CRITICAL FIX START ---
-                                    set_wrap: true,
-                                    set_wrap_mode: gtk::pango::WrapMode::WordChar,
-                                    set_hexpand: true, // Fill the box
-                                    set_width_chars: 1, // "I am happy being tiny"
-                                    set_max_width_chars: 1, // "Don't ask for size"
-                                    // --- CRITICAL FIX END ---
-                                },
+                            // Key
+                            gtk::Label {
+                                #[watch] set_label: &model.original_info().key,
+                                set_css_classes: &["monospaced", "caption"],
+                                set_halign: gtk::Align::Start,
+                                set_selectable: true,
+                                set_ellipsize: gtk::pango::EllipsizeMode::Middle,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                                // --- CRITICAL FIX END ---
+                            },
 
-                                // Key
-                                gtk::Label {
-                                    #[watch] set_label: &model.original_info().key,
-                                    set_css_classes: &["monospaced", "caption"],
-                                    set_halign: gtk::Align::Start,
-                                    set_selectable: true,
-                                    set_ellipsize: gtk::pango::EllipsizeMode::Middle,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
+                            // Authors
+                            gtk::Label {
+                                #[watch] set_label: &model.original_info().author,
+                                set_css_classes: &["body"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                            },
 
-                                // Authors
-                                gtk::Label {
-                                    #[watch] set_label: &model.original_info().author,
-                                    set_css_classes: &["body"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
-                                    set_wrap: true,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
+                            // Year
+                            gtk::Label {
+                                #[watch] set_label: &model.original_info().year,
+                                set_css_classes: &["monospaced"],
+                                set_halign: gtk::Align::Start,
+                            },
 
-                                // Year
-                                gtk::Label {
-                                    #[watch] set_label: &model.original_info().year,
-                                    set_css_classes: &["monospaced"],
-                                    set_halign: gtk::Align::Start,
-                                },
-
-                                // Journal
-                                gtk::Label {
-                                    #[watch] set_label: &model.original_info().journal,
-                                    set_css_classes: &["caption"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
-                                    set_wrap: true,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
-                            }
+                            // Journal
+                            gtk::Label {
+                                #[watch] set_label: &model.original_info().journal,
+                                set_css_classes: &["caption"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                            },
                         },
 
                         // LEFT BUTTON
                         gtk::Button {
                             set_label: "Keep This",
                             set_css_classes: &["suggested-action"],
-                            set_height_request: 60,
+                            set_height_request: 40,
                             connect_clicked => DuplicateDialogMsg::Resolve(Resolution::KeepOriginal),
                         },
                     },
@@ -175,7 +176,7 @@ impl Component for DuplicateDialogModel {
                             set_label: "Skip",
                             set_margin_start: 10,
                             set_margin_end: 10,
-                            set_height_request: 60, // Match other buttons height
+                            set_height_request: 40, // Match other buttons height
                             connect_clicked => DuplicateDialogMsg::Resolve(Resolution::Ignore),
                         },
                     },
@@ -185,86 +186,87 @@ impl Component for DuplicateDialogModel {
                         set_orientation: gtk::Orientation::Vertical,
                         set_hexpand: true, // Expand to take available space
                         set_width_request: 100,
-                        set_spacing: 12,
+                        set_spacing: 8,
                         set_margin_start: 6, // Half of the gap
 
-                        // RIGHT FRAME
-                        gtk::Frame {
-                            set_label: Some("Duplicate (Found)"),
+                        gtk::Label {
+                            set_label: "Duplicate (Found)",
+                            set_halign: gtk::Align::Start,
+                            add_css_class: "heading",
+                        },
+
+                        // RIGHT CARD
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
                             set_vexpand: true,
-                            set_css_classes: &["view"],
+                            set_css_classes: &["card", "view"],
+                            set_spacing: 8,
 
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_margin_all: 12,
-                                set_spacing: 8,
+                            // Title Label
+                            gtk::Label {
+                                #[watch] set_label: &model.candidate_info().title,
+                                set_css_classes: &["heading"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
 
-                                // Title Label
-                                gtk::Label {
-                                    #[watch] set_label: &model.candidate_info().title,
-                                    set_css_classes: &["heading"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
+                                // --- CRITICAL FIX START ---
+                                set_wrap: true,
+                                set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                                // --- CRITICAL FIX END ---
+                            },
 
-                                    // --- CRITICAL FIX START ---
-                                    set_wrap: true,
-                                    set_wrap_mode: gtk::pango::WrapMode::WordChar,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                    // --- CRITICAL FIX END ---
-                                },
+                            // Key
+                            gtk::Label {
+                                #[watch] set_label: &model.candidate_info().key,
+                                set_css_classes: &["monospaced", "caption"],
+                                set_halign: gtk::Align::Start,
+                                set_selectable: true,
+                                set_ellipsize: gtk::pango::EllipsizeMode::Middle,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                            },
 
-                                // Key
-                                gtk::Label {
-                                    #[watch] set_label: &model.candidate_info().key,
-                                    set_css_classes: &["monospaced", "caption"],
-                                    set_halign: gtk::Align::Start,
-                                    set_selectable: true,
-                                    set_ellipsize: gtk::pango::EllipsizeMode::Middle,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
+                            // Authors
+                            gtk::Label {
+                                #[watch] set_label: &model.candidate_info().author,
+                                set_css_classes: &["body"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                            },
 
-                                // Authors
-                                gtk::Label {
-                                    #[watch] set_label: &model.candidate_info().author,
-                                    set_css_classes: &["body"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
-                                    set_wrap: true,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
+                            // Year
+                            gtk::Label {
+                                #[watch] set_label: &model.candidate_info().year,
+                                set_css_classes: &["monospaced"],
+                                set_halign: gtk::Align::Start,
+                            },
 
-                                // Year
-                                gtk::Label {
-                                    #[watch] set_label: &model.candidate_info().year,
-                                    set_css_classes: &["monospaced"],
-                                    set_halign: gtk::Align::Start,
-                                },
-
-                                // Journal
-                                gtk::Label {
-                                    #[watch] set_label: &model.candidate_info().journal,
-                                    set_css_classes: &["caption"],
-                                    set_halign: gtk::Align::Start,
-                                    set_xalign: 0.0,
-                                    set_wrap: true,
-                                    set_hexpand: true,
-                                    set_width_chars: 1,
-                                    set_max_width_chars: 1,
-                                },
-                            }
+                            // Journal
+                            gtk::Label {
+                                #[watch] set_label: &model.candidate_info().journal,
+                                set_css_classes: &["caption"],
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                set_hexpand: true,
+                                set_width_chars: 1,
+                                set_max_width_chars: 1,
+                            },
                         },
 
                         // RIGHT BUTTON
                         gtk::Button {
                             set_label: "Keep This",
                             set_css_classes: &["suggested-action"],
-                            set_height_request: 60,
+                            set_height_request: 40,
                             connect_clicked => DuplicateDialogMsg::Resolve(Resolution::KeepCandidate),
                         },
                     },

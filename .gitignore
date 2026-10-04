@@ -1,0 +1,5 @@
+target/
+*.swp
+.claude/
+*.bib.bak
+/trial.bib

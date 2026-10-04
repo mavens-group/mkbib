@@ -7,10 +7,16 @@ use relm4::ComponentController;
 pub fn perform_undo(model: &mut AppModel) {
     if let Some(previous_state) = model.undo_stack.pop_back() {
         // 1. Move CURRENT state to Redo stack
-        model.redo_stack.push_back(model.bibliography.clone());
+        model
+            .redo_stack
+            .push_back(crate::app::model::DocumentSnapshot {
+                bibliography: model.bibliography.clone(),
+                revision: model.current_revision,
+            });
 
         // 2. Load PREVIOUS state
-        model.bibliography = previous_state;
+        model.bibliography = previous_state.bibliography;
+        model.current_revision = previous_state.revision;
 
         // 3. Refresh UI
         refresh_ui(model);
@@ -28,10 +34,16 @@ pub fn perform_undo(model: &mut AppModel) {
 pub fn perform_redo(model: &mut AppModel) {
     if let Some(next_state) = model.redo_stack.pop_back() {
         // 1. Move CURRENT state to Undo stack
-        model.undo_stack.push_back(model.bibliography.clone());
+        model
+            .undo_stack
+            .push_back(crate::app::model::DocumentSnapshot {
+                bibliography: model.bibliography.clone(),
+                revision: model.current_revision,
+            });
 
         // 2. Load NEXT state
-        model.bibliography = next_state;
+        model.bibliography = next_state.bibliography;
+        model.current_revision = next_state.revision;
 
         // 3. Refresh UI
         refresh_ui(model);
@@ -52,5 +64,5 @@ fn refresh_ui(model: &mut AppModel) {
     for entry in model.bibliography.iter() {
         model.entries.guard().push_back(BibEntry::from_entry(entry));
     }
-    model.is_dirty = true;
+    model.sync_dirty();
 }

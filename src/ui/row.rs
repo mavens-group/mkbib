@@ -99,6 +99,7 @@ impl FactoryComponent for BibEntry {
                 gtk::Button {
                     set_icon_name: "user-trash-symbolic",
                     add_css_class: "flat",
+                    add_css_class: "circular",
                     set_tooltip_text: Some("Delete Entry"),
 
                     // Ensure the button handles its own focus so it doesn't confusingly trigger the row click

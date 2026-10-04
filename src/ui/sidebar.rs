@@ -38,7 +38,6 @@ impl SimpleComponent for SidebarModel {
 
     view! {
         gtk::Box {
-            set_width_request: 320,
             set_orientation: gtk::Orientation::Vertical,
             set_margin_all: 12,
             set_spacing: 12,
@@ -50,16 +49,24 @@ impl SimpleComponent for SidebarModel {
             },
 
             // --- DOI Section ---
-            gtk::Frame {
-                set_label: Some("Import via DOI"),
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 6,
+
+                gtk::Label {
+                    set_label: "Import via DOI",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "heading",
+                },
+
                 gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
-                    set_margin_all: 8,
+                    set_orientation: gtk::Orientation::Horizontal,
+                    add_css_class: "linked",
 
                     // FIX: Use #[name] attribute to create the variable 'doi_entry'
                     #[name = "doi_entry"]
                     gtk::Entry {
+                        set_hexpand: true,
                         set_placeholder_text: Some("10.1038/..."),
 
                         // We watch model.doi_input so "Clear" works,
@@ -73,7 +80,8 @@ impl SimpleComponent for SidebarModel {
                     },
 
                     gtk::Button {
-                        set_label: "Fetch BibTeX",
+                        set_label: "Fetch",
+                        add_css_class: "suggested-action",
                         // Capture 'doi_entry' variable here
                         connect_clicked[sender, doi_entry] => move |_| {
                             sender.input(SidebarMsg::TriggerFetchDoi(doi_entry.text().into()));
@@ -83,16 +91,24 @@ impl SimpleComponent for SidebarModel {
             },
 
             // --- Search Section ---
-            gtk::Frame {
-                set_label: Some("Web Search (Crossref)"),
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 6,
+
+                gtk::Label {
+                    set_label: "Web Search (Crossref)",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "heading",
+                },
+
                 gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
-                    set_margin_all: 8,
+                    set_orientation: gtk::Orientation::Horizontal,
+                    add_css_class: "linked",
 
                     // FIX: Use #[name]
                     #[name = "search_entry"]
                     gtk::Entry {
+                        set_hexpand: true,
                         set_placeholder_text: Some("Title, Author..."),
 
                         #[watch]
@@ -104,7 +120,8 @@ impl SimpleComponent for SidebarModel {
                     },
 
                     gtk::Button {
-                        set_label: "Search & Import",
+                        set_label: "Search",
+                        add_css_class: "suggested-action",
                         connect_clicked[sender, search_entry] => move |_| {
                             sender.input(SidebarMsg::TriggerSearch(search_entry.text().into()));
                         }
@@ -113,38 +130,41 @@ impl SimpleComponent for SidebarModel {
             },
 
             // --- Manual Entry Section ---
-            gtk::Frame {
-                set_label: Some("Manual Entry"),
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
-                    set_margin_all: 8,
+            gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 6,
 
-                    gtk::ScrolledWindow {
-                        set_height_request: 120,
-                        set_has_frame: true,
+                gtk::Label {
+                    set_label: "Manual Entry",
+                    set_halign: gtk::Align::Start,
+                    add_css_class: "heading",
+                },
 
-                        // FIX: Use #[name]
-                        #[name = "manual_view"]
-                        gtk::TextView {
-                            set_wrap_mode: gtk::WrapMode::WordChar,
-                            set_top_margin: 8,
-                            set_bottom_margin: 8,
-                            set_left_margin: 8,
-                            set_right_margin: 8,
+                gtk::ScrolledWindow {
+                    set_height_request: 85,
+                    set_has_frame: false,
 
-                            #[watch]
-                            set_buffer: Some(&gtk::TextBuffer::builder().text(&model.manual_input).build()),
-                        }
-                    },
+                    // FIX: Use #[name]
+                    #[name = "manual_view"]
+                    gtk::TextView {
+                        set_wrap_mode: gtk::WrapMode::WordChar,
+                        set_top_margin: 6,
+                        set_bottom_margin: 6,
+                        set_left_margin: 6,
+                        set_right_margin: 6,
 
-                    gtk::Button {
-                        set_label: "Add Entry",
-                        connect_clicked[sender, manual_view] => move |_| {
-                            let buffer = manual_view.buffer();
-                            let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
-                            sender.input(SidebarMsg::TriggerParseManual(text.into()));
-                        }
+                        #[watch]
+                        set_buffer: Some(&gtk::TextBuffer::builder().text(&model.manual_input).build()),
+                    }
+                },
+
+                gtk::Button {
+                    set_label: "Add Entry",
+                    add_css_class: "suggested-action",
+                    connect_clicked[sender, manual_view] => move |_| {
+                        let buffer = manual_view.buffer();
+                        let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), true);
+                        sender.input(SidebarMsg::TriggerParseManual(text.into()));
                     }
                 }
             },
@@ -155,11 +175,11 @@ impl SimpleComponent for SidebarModel {
                 set_spinning: model.is_loading,
             },
 
-            gtk::Separator { set_margin_top: 10, set_margin_bottom: 10 },
+            gtk::Separator { set_margin_top: 4, set_margin_bottom: 4 },
 
             gtk::Button {
                 set_label: "Clear All Entries",
-                set_css_classes: &["destructive-action"],
+                add_css_class: "destructive-action",
                 connect_clicked[sender] => move |_| sender.input(SidebarMsg::TriggerClear),
             },
 

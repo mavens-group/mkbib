@@ -1,0 +1,249 @@
+/* GNOME HIG & Material 3 Grouped Surfaces Stylesheet for MkBib */
+
+/* --- Universal Component Corner Radii & Geometry --- */
+
+/* Buttons: 6px corner radius according to GNOME HIG & Libadwaita */
+button {
+    border-radius: 6px;
+    font-weight: 500;
+    min-height: 34px;
+    padding: 6px 14px;
+    border: 1px solid alpha(currentColor, 0.12);
+    background-color: alpha(currentColor, 0.05);
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+button:hover {
+    background-color: alpha(currentColor, 0.09);
+}
+
+button:active {
+    background-color: alpha(currentColor, 0.14);
+}
+
+button.suggested-action {
+    border-radius: 6px;
+    font-weight: 600;
+    border: none;
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
+button.suggested-action:hover {
+    background-color: #438fe8;
+}
+
+button.suggested-action:active {
+    background-color: #2872cb;
+}
+
+button.destructive-action {
+    border-radius: 6px;
+    font-weight: 600;
+    border: none;
+    background-color: #e01b24;
+    color: #ffffff;
+}
+
+button.destructive-action:hover {
+    background-color: #e6353d;
+}
+
+button.destructive-action:active {
+    background-color: #c01c28;
+}
+
+button:focus, button:focus-visible {
+    outline: none;
+}
+
+button.flat {
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background-color: transparent;
+}
+
+button.flat:hover {
+    background-color: alpha(currentColor, 0.07);
+}
+
+/* Circular icon buttons (e.g. trash, item ordering) */
+button.circular {
+    border-radius: 9999px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 4px;
+}
+
+button.flat.circular {
+    border-radius: 9999px;
+}
+
+/* Standalone pill button strictly for status pages if used */
+button.pill {
+    border-radius: 9999px;
+    padding: 6px 18px;
+}
+
+/* --- Text Inputs, Dropdowns & Controls --- */
+entry {
+    border-radius: 6px;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid alpha(currentColor, 0.15);
+    background-color: alpha(currentColor, 0.05);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+entry:hover {
+    background-color: alpha(currentColor, 0.07);
+    border-color: alpha(currentColor, 0.22);
+}
+
+entry:focus {
+    border-color: #3584e4;
+    box-shadow: 0 0 0 1px #3584e4;
+    background-color: alpha(currentColor, 0.08);
+}
+
+textview, textview text {
+    border-radius: 6px;
+    background-color: transparent;
+}
+
+scrolledwindow textview {
+    border-radius: 6px;
+    border: 1px solid alpha(currentColor, 0.15);
+    background-color: alpha(currentColor, 0.05);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+scrolledwindow textview:focus-within {
+    border-color: #3584e4;
+    box-shadow: 0 0 0 1px #3584e4;
+    background-color: alpha(currentColor, 0.08);
+}
+
+dropdown > button {
+    border-radius: 6px;
+    min-height: 34px;
+}
+
+spinbutton {
+    border-radius: 6px;
+}
+
+spinbutton > button {
+    border-radius: 4px;
+}
+
+/* --- Linked Controls (Entry + Button seamlessly fused) --- */
+.linked {
+    border-radius: 6px;
+}
+
+.linked > entry:first-child,
+.linked > button:first-child {
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+    border-right: none;
+}
+
+.linked > entry:last-child,
+.linked > button:last-child {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+}
+
+.linked > entry:not(:first-child):not(:last-child),
+.linked > button:not(:first-child):not(:last-child) {
+    border-radius: 0px;
+    border-right: none;
+}
+
+/* --- M3 Grouped Surfaces / HIG Cards --- */
+.card {
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid alpha(currentColor, 0.08);
+    background-color: alpha(currentColor, 0.035);
+}
+
+.boxed-list {
+    border-radius: 12px;
+    border: 1px solid alpha(currentColor, 0.08);
+    background-color: alpha(currentColor, 0.035);
+}
+
+.boxed-list > row {
+    border-radius: 0px;
+    padding: 8px 12px;
+    border-bottom: 1px solid alpha(currentColor, 0.05);
+    transition: background-color 120ms ease;
+}
+
+.boxed-list > row:last-child {
+    border-bottom: none;
+}
+
+.boxed-list > row:first-child {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+.boxed-list > row:last-child {
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+.boxed-list > row:only-child {
+    border-radius: 12px;
+}
+
+/* --- Separators & Dividers --- */
+separator {
+    background-color: alpha(currentColor, 0.08);
+    min-height: 1px;
+    min-width: 1px;
+}
+
+paned > separator {
+    background-color: alpha(currentColor, 0.12);
+    min-width: 4px;
+    transition: background-color 150ms ease;
+}
+
+paned > separator:hover {
+    background-color: #3584e4;
+}
+
+/* --- Dialogs, Popovers & Windows --- */
+window.dialog, window {
+    border-radius: 12px;
+}
+
+popover > contents {
+    border-radius: 12px;
+    padding: 6px;
+    border: 1px solid alpha(currentColor, 0.08);
+}
+
+popover.menu > contents {
+    border-radius: 12px;
+    padding: 6px;
+}
+
+popover.menu modelbutton {
+    border-radius: 6px;
+    min-height: 28px;
+    padding: 4px 8px;
+}
+
+/* --- Status / Feedback badges & alerts --- */
+image.error {
+    color: #e01b24;
+}
+
+image.success {
+    color: #2ec27e;
+}

@@ -42,6 +42,7 @@ impl FactoryComponent for KeyPartRow {
                 gtk::Button {
                     set_icon_name: "list-remove-symbolic",
                     add_css_class: "flat",
+                    add_css_class: "circular",
                     set_tooltip_text: Some("Remove field"),
                     connect_clicked => KeyPartRowMsg::Remove,
                 }
@@ -106,12 +107,14 @@ impl FactoryComponent for FieldRow {
                 gtk::Button {
                     set_icon_name: "go-up-symbolic",
                     add_css_class: "flat",
+                    add_css_class: "circular",
                     set_tooltip_text: Some("Move Up"),
                     connect_clicked => FieldRowMsg::MoveUp,
                 },
                 gtk::Button {
                     set_icon_name: "go-down-symbolic",
                     add_css_class: "flat",
+                    add_css_class: "circular",
                     set_tooltip_text: Some("Move Down"),
                     connect_clicked => FieldRowMsg::MoveDown,
                 }
@@ -249,12 +252,10 @@ impl SimpleComponent for PreferencesModel {
                             add_css_class: "dim-label",
                         },
 
-                        gtk::Frame {
-                            #[local_ref]
-                            parts_listbox -> gtk::ListBox {
-                                set_selection_mode: gtk::SelectionMode::None,
-                                add_css_class: "boxed-list",
-                            }
+                        #[local_ref]
+                        parts_listbox -> gtk::ListBox {
+                            set_selection_mode: gtk::SelectionMode::None,
+                            add_css_class: "boxed-list",
                         },
 
                         gtk::Box {
@@ -448,12 +449,10 @@ impl SimpleComponent for PreferencesModel {
 
                         gtk::ScrolledWindow {
                             set_vexpand: true,
-                            gtk::Frame {
-                                #[local_ref]
-                                fields_listbox -> gtk::ListBox {
-                                    set_selection_mode: gtk::SelectionMode::None,
-                                    add_css_class: "boxed-list",
-                                }
+                            #[local_ref]
+                            fields_listbox -> gtk::ListBox {
+                                set_selection_mode: gtk::SelectionMode::None,
+                                add_css_class: "boxed-list",
                             }
                         },
                     },

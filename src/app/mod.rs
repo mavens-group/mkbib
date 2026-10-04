@@ -26,6 +26,7 @@ use crate::ui::preferences::{PreferencesModel, PreferencesOutput};
 use crate::ui::row::BibEntryOutput;
 use crate::ui::search_dialog::{SearchDialogModel, SearchDialogOutput};
 use crate::ui::sidebar::{SidebarModel, SidebarOutput};
+use crate::ui::unsaved_dialog::UnsavedDialogModel;
 
 #[relm4::component(pub)]
 impl Component for AppModel {
@@ -40,6 +41,10 @@ impl Component for AppModel {
                 set_icon_name: Some("mkbib"),
                 set_default_width: 1100,
                 set_default_height: 750,
+                connect_close_request[sender] => move |_| {
+                    sender.input(AppMsg::TriggerQuit);
+                    gtk::glib::Propagation::Stop
+                },
 
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
@@ -48,16 +53,27 @@ impl Component for AppModel {
                     #[local_ref]
                     menu_bar -> gtk::PopoverMenuBar {},
 
-                    gtk::Box {
+                    gtk::Paned {
                         set_orientation: gtk::Orientation::Horizontal,
+                        set_position: 330,
+                        set_shrink_start_child: false,
+                        set_shrink_end_child: false,
+                        set_resize_start_child: true,
+                        set_resize_end_child: true,
                         set_vexpand: true,
+                        set_hexpand: true,
 
-                        #[local_ref]
-                        sidebar_widget -> gtk::Box {},
+                        #[wrap(Some)]
+                        set_start_child = &gtk::ScrolledWindow {
+                            set_hscrollbar_policy: gtk::PolicyType::Never,
+                            set_vscrollbar_policy: gtk::PolicyType::Automatic,
 
-                        gtk::Separator { set_orientation: gtk::Orientation::Vertical },
+                            #[local_ref]
+                            sidebar_widget -> gtk::Box {},
+                        },
 
-                        gtk::ScrolledWindow {
+                        #[wrap(Some)]
+                        set_end_child = &gtk::ScrolledWindow {
                             set_hexpand: true,
                             set_vexpand: true,
 
@@ -101,7 +117,18 @@ impl Component for AppModel {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         // FIX 2: Load config FIRST so 'key_config' variable exists
-        let key_config = core::config::load();
+        let key_config = core::config::load().unwrap_or_else(|error| {
+            eprintln!("Failed to load preferences; using defaults: {error}");
+            Default::default()
+        });
+
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(include_str!("../style.css"));
+        gtk4::style_context_add_provider_for_display(
+            &gtk4::prelude::WidgetExt::display(&root),
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
 
         menu::actions_file::init(&root, sender.clone());
         menu::actions_edit::init(&root, sender.clone());
@@ -215,6 +242,11 @@ impl Component for AppModel {
                 DuplicateDialogOutput::DeleteEntry(key) => AppMsg::DeleteEntry(key),
             });
 
+        let unsaved_dialog = UnsavedDialogModel::builder()
+            .transient_for(&root)
+            .launch(())
+            .forward(sender.input_sender(), AppMsg::UnsavedDecision);
+
         let alert = AlertModel::builder()
             .transient_for(&root)
             .launch(())
@@ -233,10 +265,15 @@ impl Component for AppModel {
             details_dialog,
             search_dialog,
             duplicate_dialog,
+            unsaved_dialog,
             key_config,
             is_dirty: false,
             undo_stack: std::collections::VecDeque::new(),
             redo_stack: std::collections::VecDeque::new(),
+            current_revision: 0,
+            saved_revision: 0,
+            next_revision: 1,
+            pending_action: None,
         };
 
         let entries_list_box = model.entries.widget();

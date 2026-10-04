@@ -724,7 +724,9 @@ fn sanitize_entry_fields(entry: &mut biblatex::Entry, chem_style: &ChemFormulaSt
                 if decoded != raw_text {
                     // Names carry no math; store as a plain Normal chunk so the
                     // "and"-separated structure is preserved for author parsing.
-                    entry.fields.insert(field.into(), make_normal_chunk(&decoded));
+                    entry
+                        .fields
+                        .insert(field.into(), make_normal_chunk(&decoded));
                 }
             }
         }
@@ -1068,7 +1070,7 @@ pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
         .entries
         .guard()
         .push_front(BibEntry::from_entry(&entry));
-    model.is_dirty = true;
+    model.mark_changed();
     model.sidebar.emit(SidebarMsg::SetStatus(format!(
         "Added entry: {}",
         unique_key
@@ -1078,13 +1080,19 @@ pub fn add_entry(model: &mut AppModel, mut entry: biblatex::Entry) {
 pub fn handle_row_output(model: &mut AppModel, output: BibEntryOutput) {
     match output {
         BibEntryOutput::Delete(key) => {
+            if model.bibliography.get(&key).is_none() {
+                model
+                    .sidebar
+                    .emit(SidebarMsg::SetStatus(format!("Entry not found: {key}")));
+                return;
+            }
             model.push_snapshot();
             model.bibliography.remove(&key);
             let index_to_remove = model.entries.iter().position(|e| e.key == key);
             if let Some(idx) = index_to_remove {
                 model.entries.guard().remove(idx);
             }
-            model.is_dirty = true;
+            model.mark_changed();
             model
                 .sidebar
                 .emit(SidebarMsg::SetStatus(format!("Deleted entry: {}", key)));
@@ -1142,7 +1150,7 @@ pub fn finish_edit(
                 model
                     .sidebar
                     .emit(SidebarMsg::SetStatus(format!("Saved entry: {}", final_key)));
-                model.is_dirty = true;
+                model.mark_changed();
             } else {
                 model
                     .alert
@@ -1162,6 +1170,12 @@ pub fn finish_edit(
 // ----------------------------------------------------------------------------
 
 pub fn regenerate_keys(model: &mut AppModel, _sender: ComponentSender<AppModel>) {
+    if model.bibliography.is_empty() {
+        model
+            .sidebar
+            .emit(SidebarMsg::SetStatus("No entries to update.".into()));
+        return;
+    }
     model.push_snapshot();
 
     let mut new_bib = Bibliography::new();
@@ -1179,7 +1193,7 @@ pub fn regenerate_keys(model: &mut AppModel, _sender: ComponentSender<AppModel>)
 
     model.bibliography = new_bib;
     refresh_ui_list(model);
-    model.is_dirty = true;
+    model.mark_changed();
     model.sidebar.emit(SidebarMsg::SetStatus(format!(
         "Regenerated {} keys.",
         count
@@ -1224,7 +1238,7 @@ pub fn abbreviate_all_entries(model: &mut AppModel) {
 
     if count > 0 {
         refresh_ui_list(model);
-        model.is_dirty = true;
+        model.mark_changed();
         model.sidebar.emit(SidebarMsg::SetStatus(format!(
             "Abbreviated {} journals.",
             count
@@ -1276,7 +1290,7 @@ pub fn unabbreviate_all_entries(model: &mut AppModel) {
 
     if count > 0 {
         refresh_ui_list(model);
-        model.is_dirty = true;
+        model.mark_changed();
         model.sidebar.emit(SidebarMsg::SetStatus(format!(
             "Expanded {} journals.",
             count
@@ -1306,6 +1320,12 @@ pub fn unabbreviate_all_entries(model: &mut AppModel) {
 /// The actual reformatting (indent, field order, Unicode mode) happens
 /// at save time via the formatter, but this ensures the data is clean.
 pub fn reformat_all_entries(model: &mut AppModel) {
+    if model.bibliography.is_empty() {
+        model
+            .sidebar
+            .emit(SidebarMsg::SetStatus("No entries to reformat.".into()));
+        return;
+    }
     model.push_snapshot();
 
     let keys: Vec<String> = model.bibliography.iter().map(|e| e.key.clone()).collect();
@@ -1353,7 +1373,7 @@ pub fn reformat_all_entries(model: &mut AppModel) {
     }
 
     refresh_ui_list(model);
-    model.is_dirty = true;
+    model.mark_changed();
     model.sidebar.emit(SidebarMsg::SetStatus(format!(
         "Reformatted {} entries.",
         count

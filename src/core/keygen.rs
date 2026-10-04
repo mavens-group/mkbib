@@ -25,8 +25,7 @@ impl KeyPart {
 }
 
 /// Controls how chemical formulas in titles are formatted on import.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum ChemFormulaStyle {
     /// No conversion — leave formulas as plain text
     #[default]
@@ -36,7 +35,6 @@ pub enum ChemFormulaStyle {
     /// mhchem package: $\ce{CO2}$  (requires \usepackage{mhchem})
     Mhchem,
 }
-
 
 impl ChemFormulaStyle {
     #[allow(dead_code)] // intended for the preferences UI dropdown
@@ -50,8 +48,7 @@ impl ChemFormulaStyle {
 }
 
 /// Controls how Unicode characters in field values are handled on output.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum UnicodeMode {
     /// Pass Unicode through as UTF-8. Modern biber handles this natively.
     #[default]
@@ -59,7 +56,6 @@ pub enum UnicodeMode {
     /// Convert Unicode accents to LaTeX macros (for legacy pdflatex/bibtex).
     Latex,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyGenConfig {
