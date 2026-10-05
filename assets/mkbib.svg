@@ -74,10 +74,13 @@
      id="mkbib">
     <path
        class="primary"
+       fill="#24292f"
        d="M 52,19 L 34,19 L 34,48 L 19,64 L 34,80 L 34,109 L 52,109 L 52,96 L 46,96 L 46,75 L 29,64 L 46,53 L 46,32 L 52,32 Z"
        id="path1" />
     <path
        class="secondary"
+       fill="#24292f"
+       fill-opacity="0.65"
        d="M 76,19 L 94,19 L 94,48 L 109,64 L 94,80 L 94,109 L 76,109 L 76,96 L 82,96 L 82,75 L 99,64 L 82,53 L 82,32 L 76,32 Z"
        id="path2" />
   </g>
