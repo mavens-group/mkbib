@@ -487,7 +487,8 @@ jobs:
           set -e
           dnf -y install \
             gcc gcc-c++ make pkgconf-pkg-config \
-            curl \
+            curl perl \
+            openssl-devel \
             gtk4-devel libadwaita-devel \
             rpm-build gh git tar findutils
 
