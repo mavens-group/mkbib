@@ -482,14 +482,23 @@ jobs:
     container:
       image: fedora:41
     steps:
-      - name: Install toolchain and dependencies
+      - name: Install system dependencies
         run: |
           set -e
           dnf -y install \
             gcc gcc-c++ make pkgconf-pkg-config \
-            rust cargo \
+            curl \
             gtk4-devel libadwaita-devel \
             rpm-build gh git tar findutils
+
+      # Fedora 41's packaged rustc (1.91) is older than gtk4-rs 0.11 /
+      # relm4 0.11 require (rustc 1.92/1.93), so install a current
+      # toolchain via rustup instead of `dnf install rust cargo`.
+      - name: Install Rust via rustup
+        run: |
+          set -e
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
 
