@@ -1,0 +1,196 @@
+name: Release
+
+# Fires when a version tag (e.g. v0.8.0) is pushed. Expected flow:
+#   1. Bump `version` in Cargo.toml, commit it.
+#   2. git tag v0.8.0 && git push origin v0.8.0
+# The version-check job fails fast if the tag doesn't match Cargo.toml,
+# before any of the (expensive) platform builds run.
+#
+# Known-fragile jobs: windows and macos build GTK4 + libadwaita from source
+# (via gvsbuild / Homebrew respectively) since no prebuilt libadwaita
+# toolchain is as battle-tested off Linux. Both are marked
+# `continue-on-error: true` so a flaky Windows/macOS toolchain never blocks
+# the Linux/Flatpak assets from shipping. Check the Actions tab if an
+# installer is missing from a release.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+          echo "Tag version:   $TAG_VERSION"
+          echo "Cargo version: $CARGO_VERSION"
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $CARGO_VERSION"
+            exit 1
+          fi
+
+  linux:
+    needs: version-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev build-essential pkg-config rpm
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Install packaging tools
+        run: |
+          cargo install cargo-packager --locked
+          cargo install cargo-generate-rpm --locked
+
+      - name: Build .deb
+        run: cargo packager --release --formats deb
+
+      - name: Build .rpm
+        run: |
+          strip target/release/mkbib
+          cargo generate-rpm
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          find target -name "*.deb" -exec cp {} dist/ \;
+          find target -name "*.rpm" -exec cp {} dist/ \;
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/*
+
+  flatpak:
+    needs: version-check
+    runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-46
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: mkbib.flatpak
+          manifest-path: flatpak/org.mavensgroup.mkbib.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: mkbib.flatpak
+
+  windows:
+    needs: version-check
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install gvsbuild
+        run: pip install gvsbuild
+
+      - name: Build GTK4 + libadwaita (gvsbuild)
+        run: gvsbuild build gtk4 libadwaita --ninja-opts -j2
+
+      - name: Expose GTK toolchain to cargo
+        shell: pwsh
+        run: |
+          echo "C:\gtk-build\gtk\x64\release\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          echo "PKG_CONFIG_PATH=C:\gtk-build\gtk\x64\release\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "LIB=C:\gtk-build\gtk\x64\release\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "INCLUDE=C:\gtk-build\gtk\x64\release\include" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Package with cargo-packager (NSIS)
+        run: |
+          cargo install cargo-packager --locked
+          cargo packager --release --formats nsis
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          find target -iname "*.exe" -path "*nsis*" -exec cp {} dist/ \;
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*
+
+  macos:
+    needs: version-check
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install GTK4 + libadwaita (Homebrew)
+        run: brew install gtk4 libadwaita pkg-config
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package with cargo-packager (dmg)
+        run: |
+          cargo install cargo-packager --locked
+          cargo packager --release --formats dmg
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          find target -name "*.dmg" -exec cp {} dist/ \;
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/*
+
+  release:
+    needs: [linux, flatpak, windows, macos]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true

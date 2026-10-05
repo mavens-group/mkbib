@@ -1,0 +1,38 @@
+app-id: org.mavensgroup.mkbib
+runtime: org.gnome.Platform
+runtime-version: "46"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: mkbib
+
+# NOTE: this manifest allows network access during the build (cargo needs to
+# fetch crates.io dependencies). That is fine for producing a downloadable
+# .flatpak bundle from CI, but it is NOT sandboxed/reproducible enough for a
+# Flathub submission -- that would require vendoring dependencies via
+# flatpak-builder-tools' flatpak-cargo-generator.py into a generated-sources
+# module instead.
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --share=network
+  - --filesystem=home
+
+modules:
+  - name: mkbib
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/mkbib /app/bin/mkbib
+      - install -Dm644 assets/org.mavensgroup.mkbib.desktop /app/share/applications/org.mavensgroup.mkbib.desktop
+      - install -Dm644 assets/org.mavensgroup.mkbib.svg /app/share/icons/hicolor/scalable/apps/org.mavensgroup.mkbib.svg
+    sources:
+      - type: dir
+        path: ..

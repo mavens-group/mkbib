@@ -36,11 +36,8 @@ strip = true
 [package.metadata.packager]
 product_name = "MkBib"
 identifier = "org.mavensgroup.mkbib"
-version = "0.2.0"
 before_packaging_command = "cargo build --release"
 resources = ["assets"]  # This copies the whole assets folder into the package
-
-# CHANGE THIS LINE:
 icons = ["assets/org.mavensgroup.mkbib.png"]
 
 [package.metadata.packager.deb]

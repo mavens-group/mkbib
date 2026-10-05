@@ -2,7 +2,7 @@
 Type=Application
 Name=MkBib
 Exec=mkbib
-Icon=org.mkbib.rs
+Icon=org.mavensgroup.mkbib
 Terminal=false
 Categories=Office;
-StartupWMClass=org.mkbib.rs
+StartupWMClass=org.mavensgroup.mkbib
