@@ -11,7 +11,7 @@ pub fn init(root: &gtk4::ApplicationWindow, _sender: ComponentSender<AppModel>) 
     // --- ABOUT ---
     let action_about = gio::SimpleAction::new("about", None);
 
-    action_about.connect_activate(glib::clone!(@weak root => move |_, _| {
+    action_about.connect_activate(glib::clone!(#[weak] root, move |_, _| {
 
         // --- HYBRID ICON LOGIC ---
         // AdwAboutDialog takes an *icon name* (application-icon), not a paintable.
@@ -39,7 +39,7 @@ pub fn init(root: &gtk4::ApplicationWindow, _sender: ComponentSender<AppModel>) 
             .license_type(gtk4::License::Gpl30)
             .build();
 
-        dialog.present(&root);
+        dialog.present(Some(&root));
     }));
 
     root.add_action(&action_about);

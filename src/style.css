@@ -247,3 +247,21 @@ image.error {
 image.success {
     color: #2ec27e;
 }
+
+/* --- Header Bar --- */
+/* Undo the generic button styling above so header bar buttons stay flat */
+headerbar button {
+    min-height: 24px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    background-color: transparent;
+}
+
+headerbar button:hover {
+    background-color: alpha(currentColor, 0.07);
+}
+
+headerbar button:active,
+headerbar button:checked {
+    background-color: alpha(currentColor, 0.14);
+}

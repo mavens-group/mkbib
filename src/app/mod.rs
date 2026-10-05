@@ -5,6 +5,7 @@ use biblatex::Bibliography;
 use gtk4::gio;
 use gtk4::prelude::*;
 use gtk4::FileFilter;
+use libadwaita as adw;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 use relm4_components::open_dialog::{OpenDialog, OpenDialogSettings};
@@ -46,12 +47,29 @@ impl Component for AppModel {
                     gtk::glib::Propagation::Stop
                 },
 
+                #[wrap(Some)]
+                set_titlebar = &adw::HeaderBar {
+                    pack_start = &gtk::Button {
+                        set_icon_name: "document-open-symbolic",
+                        set_tooltip_text: Some("Open (Ctrl+O)"),
+                        set_action_name: Some("win.open"),
+                    },
+                    pack_start = &gtk::Button {
+                        set_icon_name: "document-save-symbolic",
+                        set_tooltip_text: Some("Save (Ctrl+S)"),
+                        set_action_name: Some("win.save"),
+                    },
+                    pack_end = &gtk::MenuButton {
+                        set_icon_name: "open-menu-symbolic",
+                        set_tooltip_text: Some("Main Menu"),
+                        set_menu_model: Some(&primary_menu),
+                        set_primary: true,
+                    },
+                },
+
                 gtk::Box {
                     set_orientation: gtk::Orientation::Vertical,
                     set_spacing: 0,
-
-                    #[local_ref]
-                    menu_bar -> gtk::PopoverMenuBar {},
 
                     gtk::Paned {
                         set_orientation: gtk::Orientation::Horizontal,
@@ -142,34 +160,31 @@ impl Component for AppModel {
         app.set_accels_for_action("edit.preferences", &["<Control>comma"]);
         app.set_accels_for_action("win.about", &["F1"]);
 
-        let menu_model = gio::Menu::new();
-        let file_menu = gio::Menu::new();
-        file_menu.append(Some("Open"), Some("win.open"));
-        file_menu.append(Some("Save"), Some("win.save"));
-        file_menu.append(Some("Save As..."), Some("win.save_as"));
-        file_menu.append(Some("Quit"), Some("win.quit"));
-        menu_model.append_submenu(Some("File"), &file_menu);
+        // Primary (hamburger) menu, GNOME HIG style
+        let primary_menu = gio::Menu::new();
 
-        let edit_menu = gio::Menu::new();
-        edit_menu.append(Some("Preferences"), Some("edit.preferences"));
-        edit_menu.append(Some("Regenerate Keys"), Some("edit.regenerate_keys"));
-        edit_menu.append(Some("Reformat All Entries"), Some("edit.reformat_all"));
-        edit_menu.append(Some("Scan for Duplicates"), Some("edit.scan_duplicates"));
-        edit_menu.append(
+        let file_section = gio::Menu::new();
+        file_section.append(Some("Save As…"), Some("win.save_as"));
+        primary_menu.append_section(None, &file_section);
+
+        let tools_section = gio::Menu::new();
+        tools_section.append(Some("Regenerate Keys"), Some("edit.regenerate_keys"));
+        tools_section.append(Some("Reformat All Entries"), Some("edit.reformat_all"));
+        tools_section.append(Some("Scan for Duplicates"), Some("edit.scan_duplicates"));
+        tools_section.append(
             Some("Abbreviate Journal Titles"),
             Some("edit.abbreviate_journals"),
         );
-        edit_menu.append(
+        tools_section.append(
             Some("Un-abbreviate Journal Titles"),
             Some("edit.unabbreviate_journals"),
         );
-        menu_model.append_submenu(Some("Edit"), &edit_menu);
+        primary_menu.append_section(None, &tools_section);
 
-        let help_menu = gio::Menu::new();
-        help_menu.append(Some("About MkBib"), Some("win.about"));
-        menu_model.append_submenu(Some("Help"), &help_menu);
-
-        let menu_bar = gtk::PopoverMenuBar::from_model(Some(&menu_model));
+        let app_section = gio::Menu::new();
+        app_section.append(Some("Preferences"), Some("edit.preferences"));
+        app_section.append(Some("About MkBib"), Some("win.about"));
+        primary_menu.append_section(None, &app_section);
 
         let entries = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())

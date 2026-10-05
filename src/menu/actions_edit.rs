@@ -11,40 +11,40 @@ pub fn init(root: &gtk::ApplicationWindow, sender: ComponentSender<AppModel>) {
 
     // Action: preferences
     let action_prefs = gio::SimpleAction::new("preferences", None);
-    action_prefs.connect_activate(clone!(@strong sender => move |_, _| {
+    action_prefs.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::ShowPreferences);
     }));
     group.add_action(&action_prefs);
 
     // Action: regenerate_keys
     let action_regen = gio::SimpleAction::new("regenerate_keys", None);
-    action_regen.connect_activate(clone!(@strong sender => move |_, _| {
+    action_regen.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::RegenerateAllKeys);
     }));
     group.add_action(&action_regen);
 
     // Action: reformat_all
     let action_reformat = gio::SimpleAction::new("reformat_all", None);
-    action_reformat.connect_activate(clone!(@strong sender => move |_, _| {
+    action_reformat.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::ReformatAll);
     }));
     group.add_action(&action_reformat);
 
     // --- Action: scan_duplicates ---
     let action_scan = gio::SimpleAction::new("scan_duplicates", None);
-    action_scan.connect_activate(clone!(@strong sender => move |_, _| {
+    action_scan.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::ScanDuplicates);
     }));
     group.add_action(&action_scan);
 
     let action_abbr = gio::SimpleAction::new("abbreviate_journals", None);
-    action_abbr.connect_activate(clone!(@strong sender => move |_, _| {
+    action_abbr.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::AbbreviateAllJournals);
     }));
     group.add_action(&action_abbr);
 
     let action_unabbr = gio::SimpleAction::new("unabbreviate_journals", None);
-    action_unabbr.connect_activate(clone!(@strong sender => move |_, _| {
+    action_unabbr.connect_activate(clone!(#[strong] sender, move |_, _| {
         sender.input(AppMsg::UnabbreviateAllJournals);
     }));
     group.add_action(&action_unabbr);
