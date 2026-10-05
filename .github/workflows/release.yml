@@ -1,196 +1,541 @@
 name: Release
 
-# Fires when a version tag (e.g. v0.8.0) is pushed. Expected flow:
-#   1. Bump `version` in Cargo.toml, commit it.
-#   2. git tag v0.8.0 && git push origin v0.8.0
-# The version-check job fails fast if the tag doesn't match Cargo.toml,
-# before any of the (expensive) platform builds run.
-#
-# Known-fragile jobs: windows and macos build GTK4 + libadwaita from source
-# (via gvsbuild / Homebrew respectively) since no prebuilt libadwaita
-# toolchain is as battle-tested off Linux. Both are marked
-# `continue-on-error: true` so a flaky Windows/macOS toolchain never blocks
-# the Linux/Flatpak assets from shipping. Check the Actions tab if an
-# installer is missing from a release.
-
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*"
+      - "test-v*"
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  version-check:
+  # ---------------------------------------------------------------------------
+  # Create the release as a DRAFT. It is only published at the very end, after
+  # every build job has succeeded (see the `finalize` job).
+  # ---------------------------------------------------------------------------
+  create-release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#test-v}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Verify tag matches Cargo.toml version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
           CARGO_VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
-          echo "Tag version:   $TAG_VERSION"
-          echo "Cargo version: $CARGO_VERSION"
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $CARGO_VERSION"
+          if [ "${{ steps.get_version.outputs.version }}" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag version ${{ steps.get_version.outputs.version }} does not match Cargo.toml version $CARGO_VERSION"
             exit 1
           fi
 
-  linux:
-    needs: version-check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install system dependencies
+      - name: Create Draft Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev build-essential pkg-config rpm
+          cat > notes.md <<'NOTES'
+          ### macOS users
 
-      - name: Build release binary
-        run: cargo build --release
+          These builds are ad-hoc signed, not notarized. On first launch macOS
+          may refuse to open the app. To allow it:
 
-      - name: Install packaging tools
-        run: |
-          cargo install cargo-packager --locked
-          cargo install cargo-generate-rpm --locked
+              xattr -cr /Applications/MkBib.app
 
-      - name: Build .deb
-        run: cargo packager --release --formats deb
+          Download the DMG matching your CPU: `arm64` for Apple Silicon
+          (M1/M2/M3/M4), `x86_64` for Intel Macs.
 
-      - name: Build .rpm
-        run: |
-          strip target/release/mkbib
-          cargo generate-rpm
+          ### Linux users
 
-      - name: Collect artifacts
-        run: |
-          mkdir -p dist
-          find target -name "*.deb" -exec cp {} dist/ \;
-          find target -name "*.rpm" -exec cp {} dist/ \;
-          ls -la dist
+          The `.deb` requires Ubuntu 24.04 / Debian 13 or newer (libadwaita 1.5).
+          Older distributions should use the Flatpak.
+          NOTES
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-packages
-          path: dist/*
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --title "Release ${{ github.ref_name }}" \
+            --generate-notes \
+            --notes-file notes.md
 
-  flatpak:
-    needs: version-check
-    runs-on: ubuntu-latest
-    container:
-      image: bilelmoussaoui/flatpak-github-actions:gnome-46
-      options: --privileged
-    steps:
-      - uses: actions/checkout@v4
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: mkbib.flatpak
-          manifest-path: flatpak/org.mavensgroup.mkbib.yml
-          cache-key: flatpak-builder-${{ github.sha }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flatpak-bundle
-          path: mkbib.flatpak
-
-  windows:
-    needs: version-check
+  # ---------------------------------------------------------------------------
+  # Windows — MSYS2/UCRT64. Uses the MSYS2 Rust toolchain only; mixing it with
+  # the rustup toolchain breaks the x86_64-pc-windows-gnu target.
+  # ---------------------------------------------------------------------------
+  build-windows:
+    needs: create-release
     runs-on: windows-latest
-    continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
-      - name: Install gvsbuild
-        run: pip install gvsbuild
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-nsis
 
-      - name: Build GTK4 + libadwaita (gvsbuild)
-        run: gvsbuild build gtk4 libadwaita --ninja-opts -j2
-
-      - name: Expose GTK toolchain to cargo
-        shell: pwsh
+      - name: Build
+        env:
+          PKG_CONFIG_PATH: /ucrt64/lib/pkgconfig
+          LIBRARY_PATH: /ucrt64/lib
         run: |
-          echo "C:\gtk-build\gtk\x64\release\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          echo "PKG_CONFIG_PATH=C:\gtk-build\gtk\x64\release\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "LIB=C:\gtk-build\gtk\x64\release\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "INCLUDE=C:\gtk-build\gtk\x64\release\include" | Out-File -FilePath $env:GITHUB_ENV -Append
+          set -e
+          cargo build --release --locked --target x86_64-pc-windows-gnu
 
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Package with cargo-packager (NSIS)
+      - name: Bundle DLLs and Assets
         run: |
-          cargo install cargo-packager --locked
-          cargo packager --release --formats nsis
+          set -e
+          mkdir -p dist
+          cp target/x86_64-pc-windows-gnu/release/mkbib.exe dist/
 
-      - name: Collect artifacts
+          # Dependencies (DLLs)
+          ldd target/x86_64-pc-windows-gnu/release/mkbib.exe \
+            | grep '/ucrt64' | awk '{print $3}' | xargs -I '{}' cp -u '{}' dist/
+
+          # GSettings schemas
+          mkdir -p dist/share/glib-2.0/schemas
+          cp /ucrt64/share/glib-2.0/schemas/* dist/share/glib-2.0/schemas/
+          glib-compile-schemas dist/share/glib-2.0/schemas/
+
+          # Icon themes
+          mkdir -p dist/share/icons
+          cp -r /ucrt64/share/icons/Adwaita dist/share/icons/
+          cp -r /ucrt64/share/icons/hicolor dist/share/icons/
+
+          # GDK pixbuf loaders (PNG/SVG icons fail silently without these)
+          if [ -d /ucrt64/lib/gdk-pixbuf-2.0 ]; then
+            mkdir -p dist/lib
+            cp -r /ucrt64/lib/gdk-pixbuf-2.0 dist/lib/
+          fi
+
+      - name: Patch installer version from tag
+        run: |
+          set -e
+          VERSION="${{ needs.create-release.outputs.version }}"
+          MAJOR="$(echo "$VERSION" | cut -d. -f1)"
+          MINOR="$(echo "$VERSION" | cut -d. -f2)"
+          BUILD="$(echo "$VERSION" | cut -d. -f3)"
+          sed -i "s/^!define VERSIONMAJOR .*/!define VERSIONMAJOR ${MAJOR:-0}/" installer.ini
+          sed -i "s/^!define VERSIONMINOR .*/!define VERSIONMINOR ${MINOR:-0}/" installer.ini
+          sed -i "s/^!define VERSIONBUILD .*/!define VERSIONBUILD ${BUILD:-0}/" installer.ini
+
+      - name: Create Installer
+        run: |
+          set -e
+          makensis installer.ini
+          sha256sum mkbib-installer.exe > mkbib-installer.exe.sha256
+
+      - name: Upload Installer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # gh is on the Windows runner's native PATH, NOT inside MSYS2.
         shell: bash
         run: |
-          mkdir -p dist
-          find target -iname "*.exe" -path "*nsis*" -exec cp {} dist/ \;
-          ls -la dist
+          set -e
+          gh release upload "${{ github.ref_name }}" \
+            mkbib-installer.exe mkbib-installer.exe.sha256
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/*
-
-  macos:
-    needs: version-check
-    runs-on: macos-latest
-    continue-on-error: true
+  # ---------------------------------------------------------------------------
+  # macOS — both architectures.
+  # ---------------------------------------------------------------------------
+  build-macos:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-15
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
-      - name: Install GTK4 + libadwaita (Homebrew)
-        run: brew install gtk4 libadwaita pkg-config
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Package with cargo-packager (dmg)
-        run: |
-          cargo install cargo-packager --locked
-          cargo packager --release --formats dmg
-
-      - name: Collect artifacts
-        run: |
-          mkdir -p dist
-          find target -name "*.dmg" -exec cp {} dist/ \;
-          ls -la dist
-
-      - uses: actions/upload-artifact@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          name: macos-dmg
-          path: dist/*
+          key: macos-${{ matrix.arch }}
 
-  release:
-    needs: [linux, flatpak, windows, macos]
-    if: always()
+      - name: Install Dependencies
+        run: brew install gtk4 libadwaita adwaita-icon-theme
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Bundle App
+        run: |
+          set -euo pipefail
+
+          APP_NAME="MkBib"
+          APP_DIR="$APP_NAME.app"
+          BREW_PREFIX=$(brew --prefix)
+
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          mkdir -p "$APP_DIR/Contents/Resources"
+          mkdir -p "$APP_DIR/Contents/Libs"
+
+          cp target/release/mkbib "$APP_DIR/Contents/MacOS/mkbib-bin"
+
+          # --- Manual dylib bundling ------------------------------------------
+          # Homebrew bottles increasingly report @rpath/... install names, which
+          # are not real paths on disk and must be resolved before copying.
+          resolve_dep() {
+            local dep="$1"
+            case "$dep" in
+              @rpath/*)
+                local base
+                base=$(basename "${dep#@rpath/}")
+                if [ -e "$BREW_PREFIX/lib/$base" ]; then
+                  echo "$BREW_PREFIX/lib/$base"
+                else
+                  find "$BREW_PREFIX/Cellar" -name "$base" \( -type f -o -type l \) 2>/dev/null | head -n1
+                fi
+                ;;
+              *)
+                echo "$dep"
+                ;;
+            esac
+          }
+
+          bundle_libs() {
+            local binary="$1"
+            local deps
+            deps=$(otool -L "$binary" | tail -n +2 | awk '{print $1}' \
+                    | grep -vE "^/usr/lib|^/System/Library|^@executable_path|^@loader_path" || true)
+
+            for dep in $deps; do
+              local lib_name real_path target_path
+              lib_name=$(basename "$dep")
+              target_path="$APP_DIR/Contents/Libs/$lib_name"
+
+              if [ ! -f "$target_path" ]; then
+                real_path=$(resolve_dep "$dep")
+                if [ -z "$real_path" ] || [ ! -f "$real_path" ]; then
+                  echo "WARNING: could not resolve $dep -- skipping"
+                  continue
+                fi
+                echo "Bundling $lib_name"
+                cp -L "$real_path" "$target_path"
+                chmod 755 "$target_path"
+                install_name_tool -id "@executable_path/../Libs/$lib_name" "$target_path"
+                bundle_libs "$target_path"
+                codesign --force --sign - "$target_path"
+              fi
+
+              install_name_tool -change "$dep" "@executable_path/../Libs/$lib_name" "$binary" || true
+            done
+
+            codesign --force --sign - "$binary"
+          }
+
+          echo "Starting recursive bundling..."
+          bundle_libs "$APP_DIR/Contents/MacOS/mkbib-bin"
+          echo "Bundling complete."
+          # --- End bundling ---------------------------------------------------
+
+          # GSettings schemas
+          mkdir -p "$APP_DIR/Contents/Resources/share/glib-2.0/schemas"
+          cp "$BREW_PREFIX/share/glib-2.0/schemas/"* \
+             "$APP_DIR/Contents/Resources/share/glib-2.0/schemas/"
+          glib-compile-schemas "$APP_DIR/Contents/Resources/share/glib-2.0/schemas"
+
+          # Icon themes
+          mkdir -p "$APP_DIR/Contents/Resources/share/icons"
+          for theme in Adwaita hicolor; do
+            if [ -d "$BREW_PREFIX/share/icons/$theme" ]; then
+              cp -r "$BREW_PREFIX/share/icons/$theme" \
+                    "$APP_DIR/Contents/Resources/share/icons/"
+            else
+              echo "Warning: $theme icons not found at $BREW_PREFIX/share/icons/$theme"
+            fi
+          done
+
+          # GDK pixbuf loaders. The SVG loader (from librsvg) needs librsvg and
+          # its dependencies, so each loader goes through the same recursive
+          # bundling as the binary.
+          PIXBUF_SRC=$(find "$BREW_PREFIX/lib/gdk-pixbuf-2.0" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | head -n1)
+          if [ -n "$PIXBUF_SRC" ]; then
+            PIXBUF_VER=$(basename "$PIXBUF_SRC")
+            PIXBUF_DEST="$APP_DIR/Contents/Resources/lib/gdk-pixbuf-2.0/$PIXBUF_VER"
+            mkdir -p "$PIXBUF_DEST/loaders"
+            cp -L "$PIXBUF_SRC"/loaders/*.so "$PIXBUF_DEST/loaders/" 2>/dev/null || true
+            cp -L "$PIXBUF_SRC"/loaders/*.dylib "$PIXBUF_DEST/loaders/" 2>/dev/null || true
+            for loader in "$PIXBUF_DEST"/loaders/*; do
+              [ -f "$loader" ] || continue
+              chmod 755 "$loader"
+              echo "Bundling dependencies of $(basename "$loader")"
+              bundle_libs "$loader"
+            done
+            if [ ! -f "$APP_DIR/Contents/Libs/librsvg-2.2.dylib" ]; then
+              echo "ERROR: librsvg was not bundled; SVG images would not load" >&2
+              exit 1
+            fi
+            LOADER_FILES=$(ls "$PIXBUF_SRC"/loaders/*.so "$PIXBUF_SRC"/loaders/*.dylib 2>/dev/null || true)
+            # shellcheck disable=SC2086
+            gdk-pixbuf-query-loaders $LOADER_FILES \
+              | sed "s|$PIXBUF_SRC/loaders|@LOADER_DIR@|g" > "$PIXBUF_DEST/loaders.cache.in"
+            grep -q "svg" "$PIXBUF_DEST/loaders.cache.in" || { echo "ERROR: no SVG loader in the cache" >&2; exit 1; }
+          fi
+
+          # Launcher script
+          cat << 'EOF' > "$APP_DIR/Contents/MacOS/mkbib"
+          #!/bin/sh
+          DIR=$(cd "$(dirname "$0")" && pwd)
+          RES="$DIR/../Resources"
+          export GSETTINGS_SCHEMA_DIR="$RES/share/glib-2.0/schemas"
+          export XDG_DATA_DIRS="$RES/share"
+          export GTK_DATA_PREFIX="$RES"
+          TEMPLATE=$(ls "$RES"/lib/gdk-pixbuf-2.0/*/loaders.cache.in 2>/dev/null | head -n1)
+          if [ -n "$TEMPLATE" ]; then
+            LOADER_DIR="$(dirname "$TEMPLATE")/loaders"
+            CACHE_DIR="${TMPDIR:-/tmp}/mkbib-$(id -u)"
+            mkdir -p "$CACHE_DIR"
+            sed "s|@LOADER_DIR@|$LOADER_DIR|g" "$TEMPLATE" > "$CACHE_DIR/loaders.cache"
+            export GDK_PIXBUF_MODULE_FILE="$CACHE_DIR/loaders.cache"
+          fi
+          exec "$DIR/mkbib-bin" "$@"
+          EOF
+          chmod +x "$APP_DIR/Contents/MacOS/mkbib"
+
+          # Info.plist
+          VERSION="${{ needs.create-release.outputs.version }}"
+          cat > "$APP_DIR/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>mkbib</string>
+              <key>CFBundleIdentifier</key>
+              <string>org.mavensgroup.mkbib</string>
+              <key>CFBundleName</key>
+              <string>MkBib</string>
+              <key>CFBundleShortVersionString</key>
+              <string>$VERSION</string>
+              <key>CFBundleVersion</key>
+              <string>$VERSION</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>LSMinimumSystemVersion</key>
+              <string>12.0</string>
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --deep --sign - "$APP_DIR"
+          codesign --verify --verbose "$APP_DIR" || true
+
+          DMG="mkbib-macos-${{ matrix.arch }}.dmg"
+          for attempt in 1 2 3 4 5; do
+            if hdiutil create -volname MkBib -srcfolder "$APP_DIR" -ov -format UDZO "$DMG"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "hdiutil failed 5 times" >&2
+              exit 1
+            fi
+            echo "hdiutil busy (attempt $attempt); retrying in $((attempt * 10)) s"
+            sleep $((attempt * 10))
+          done
+          shasum -a 256 "$DMG" > "$DMG.sha256"
+
+      - name: Upload macOS DMG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          DMG="mkbib-macos-${{ matrix.arch }}.dmg"
+          gh release upload "${{ github.ref_name }}" "$DMG" "$DMG.sha256"
+
+  # ---------------------------------------------------------------------------
+  # Flatpak
+  # ---------------------------------------------------------------------------
+  build-flatpak:
+    needs: create-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - uses: actions/checkout@v4
 
-      - name: Flatten artifacts
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
         run: |
-          mkdir -p release-assets
-          find artifacts -type f -exec cp {} release-assets/ \;
-          ls -la release-assets
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder python3-pip
+          pip3 install --break-system-packages tomlkit aiohttp
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+          sudo flatpak install -y --noninteractive flathub \
+            org.gnome.Sdk//49 \
+            org.gnome.Platform//49 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      - name: Generate cargo sources
+        run: |
+          set -e
+          curl -O https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
+          python3 flatpak-cargo-generator.py ./Cargo.lock -o cargo-sources.json
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          files: release-assets/*
-          generate_release_notes: true
+          bundle: mkbib.flatpak
+          manifest-path: org.mavensgroup.mkbib.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          install-deps-from: false
+
+      - name: Upload Flatpak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          sha256sum mkbib.flatpak > mkbib.flatpak.sha256
+          gh release upload "${{ github.ref_name }}" mkbib.flatpak mkbib.flatpak.sha256
+
+  # ---------------------------------------------------------------------------
+  # DEB — must be ubuntu-24.04 or newer. Jammy (22.04) ships libadwaita 1.1,
+  # but the `libadwaita` crate's v1_5 feature requires libadwaita-1 >= 1.5.
+  # ---------------------------------------------------------------------------
+  build-deb:
+    name: Build DEB
+    needs: create-release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install System Dependencies
+        run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+          pkg-config --modversion libadwaita-1   # sanity check: must be >= 1.5
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build Binary
+        run: cargo build --release --locked
+
+      - name: Build DEB
+        run: |
+          set -e
+          cargo deb --no-build --output target/debian/mkbib.deb
+          sha256sum target/debian/mkbib.deb > target/debian/mkbib.deb.sha256
+
+      - name: Upload DEB
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release upload "${{ github.ref_name }}" \
+            target/debian/mkbib.deb target/debian/mkbib.deb.sha256
+
+  # ---------------------------------------------------------------------------
+  # RPM — must be built inside a Fedora container. cargo-generate-rpm with
+  # auto-req resolves dependency names against the host package database, so
+  # building on Ubuntu produces requires that no RPM distro can satisfy.
+  # ---------------------------------------------------------------------------
+  build-rpm:
+    name: Build RPM
+    needs: create-release
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:41
+    steps:
+      - name: Install toolchain and dependencies
+        run: |
+          set -e
+          dnf -y install \
+            gcc gcc-c++ make pkgconf-pkg-config \
+            rust cargo \
+            gtk4-devel libadwaita-devel \
+            rpm-build gh git tar findutils
+
+      - uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm --locked
+
+      - name: Build Binary
+        run: cargo build --release --locked
+
+      - name: Build RPM
+        run: |
+          set -e
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo generate-rpm
+          mv target/generate-rpm/*.rpm target/generate-rpm/mkbib.rpm
+          sha256sum target/generate-rpm/mkbib.rpm > target/generate-rpm/mkbib.rpm.sha256
+
+      - name: Upload RPM
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release upload "${{ github.ref_name }}" \
+            target/generate-rpm/mkbib.rpm target/generate-rpm/mkbib.rpm.sha256
+
+  # ---------------------------------------------------------------------------
+  # Publish the draft only if every build succeeded. test-v* tags stay drafts.
+  # ---------------------------------------------------------------------------
+  finalize:
+    needs:
+      - create-release
+      - build-windows
+      - build-macos
+      - build-flatpak
+      - build-deb
+      - build-rpm
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --draft=false

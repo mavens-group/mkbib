@@ -1,0 +1,38 @@
+app-id: org.mavensgroup.mkbib
+runtime: org.gnome.Platform
+runtime-version: "49"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: mkbib
+
+# Unlike cview, mkbib fetches citation metadata from network APIs at
+# runtime, so --share=network is in finish-args (not just a build-time
+# convenience).
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network
+  - --filesystem=home
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/mkbib/cargo
+
+modules:
+  - name: mkbib
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml
+      - cargo --offline build --release
+      - install -Dm755 ./target/release/mkbib -t /app/bin/
+      - install -Dm644 assets/org.mavensgroup.mkbib.desktop -t /app/share/applications/
+      - install -Dm644 assets/org.mavensgroup.mkbib.svg -t /app/share/icons/hicolor/scalable/apps/
+    sources:
+      - type: dir
+        path: .
+      - cargo-sources.json
